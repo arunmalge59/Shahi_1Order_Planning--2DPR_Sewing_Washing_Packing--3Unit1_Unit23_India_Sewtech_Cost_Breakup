@@ -1,0 +1,379 @@
+<main class="container">
+
+  <!-- Upload section -->
+  <section class="upload-section">
+    <div class="upload-card">
+      <span class="upload-number">01</span>
+      <h3>Previous Snapshot</h3>
+      <input type="file" accept=".csv,.xlsx,.xls" (change)="onJulyFileSelected($event)" />
+      <p *ngIf="julyFile" class="file-name">{{ julyFile.name }}</p>
+    </div>
+
+    <span class="vs">VS</span>
+
+    <div class="upload-card">
+      <span class="upload-number">02</span>
+      <h3>Current Snapshot</h3>
+      <input type="file" accept=".csv,.xlsx,.xls" (change)="onAugustFileSelected($event)" />
+      <p *ngIf="augustFile" class="file-name">{{ augustFile.name }}</p>
+    </div>
+  </section>
+
+  <div class="compare-button-wrap">
+    <button class="compare-button" (click)="compare()" [disabled]="loading">
+      {{ loading ? 'Comparing...' : 'COMPARE SNAPSHOTS' }}
+    </button>
+  </div>
+
+  <p class="error" *ngIf="errorMessage">{{ errorMessage }}</p>
+
+  <!-- Results -->
+  <ng-container *ngIf="result">
+
+    <!-- KPI cards -->
+    <section class="kpi-section">
+      <div class="kpi-card">
+        <span class="kpi-value">{{ result.summary.changedStyles }}</span>
+        <span class="kpi-label">Changed Styles</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-value">{{ result.summary.changedSchedules }}</span>
+        <span class="kpi-label">Changed Schedules</span>
+      </div>
+      <div class="kpi-card kpi-added">
+        <span class="kpi-value">{{ result.summary.addedSchedules }}</span>
+        <span class="kpi-label">Added Schedules</span>
+      </div>
+      <div class="kpi-card kpi-removed">
+        <span class="kpi-value">{{ result.summary.removedSchedules }}</span>
+        <span class="kpi-label">Removed Schedules</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-value">{{ result.summary.sameSchedules }}</span>
+        <span class="kpi-label">Same Schedules</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-value">{{ result.summary.totalStyles }}</span>
+        <span class="kpi-label">Total Styles</span>
+      </div>
+      <div class="kpi-card kpi-overall">
+        <span class="kpi-value" [class.diff-positive]="overallQtyChange > 0" [class.diff-negative]="overallQtyChange < 0">
+          {{ overallQtyChange > 0 ? '+' : '' }}{{ overallQtyChange | number }}
+        </span>
+        <span class="kpi-label">Overall Qty Change</span>
+      </div>
+    </section>
+
+    <div class="comparison-columns">
+      <div class="existing-comparison-column">
+
+    <!-- Filters Section -->
+    <section class="filter-panel">
+      <div class="filter-row">
+        <!-- Style Filter Dropdown -->
+        <div class="filter-group">
+          <label for="styleDropdown">Style</label>
+          <select id="styleDropdown" [(ngModel)]="selectedStyleFilter" class="filter-select">
+            <option value="ALL">All Styles</option>
+            <option *ngFor="let s of availableStyles" [value]="s">{{ s }}</option>
+          </select>
+        </div>
+
+        <!-- Description Filter -->
+        <div class="filter-group">
+          <label for="descSearch">Description</label>
+          <input
+            id="descSearch"
+            type="text"
+            placeholder="Search description..."
+            [(ngModel)]="descriptionFilter"
+            class="filter-input"
+          />
+        </div>
+
+        <!-- Schedule Filter Buttons -->
+        <div class="filter-group filter-status-group">
+          <label>Schedule Status</label>
+          <div class="filter-buttons">
+            <button [class.active]="scheduleStatusFilter === 'ALL'" (click)="setScheduleStatusFilter('ALL')">All</button>
+            <button [class.active]="scheduleStatusFilter === 'Changed'" (click)="setScheduleStatusFilter('Changed')" title="Includes Changed + Added + Removed schedules">Changed</button>
+            <button [class.active]="scheduleStatusFilter === 'Same'" (click)="setScheduleStatusFilter('Same')">Same</button>
+            <button [class.active]="scheduleStatusFilter === 'Added'" (click)="setScheduleStatusFilter('Added')">Added</button>
+            <button [class.active]="scheduleStatusFilter === 'Removed'" (click)="setScheduleStatusFilter('Removed')">Removed</button>
+          </div>
+        </div>
+
+        <!-- Download currently-filtered report -->
+        <div class="filter-group">
+          <label>&nbsp;</label>
+          <button
+            class="btn-download"
+            (click)="downloadFilteredReport()"
+            [disabled]="filteredSchedules.length === 0"
+            title="Download the rows currently shown below as an Excel file">
+            ⬇ Download {{ scheduleStatusFilter === 'ALL' ? 'All' : scheduleStatusFilter }} Report ({{ filteredSchedules.length }})
+          </button>
+        </div>
+
+        <button *ngIf="selectedStyleFilter !== 'ALL' || descriptionFilter !== '' || scheduleStatusFilter !== 'ALL'"
+                class="btn-reset"
+                (click)="resetFilters()">
+          Reset Filters
+        </button>
+      </div>
+    </section>
+
+    <!-- Detailed Schedule Comparison Table (ONE RECORD = ONE ROW) -->
+    <section class="table-section">
+      <div class="table-header-title">
+        <h2>Schedule-Level Detailed Comparison</h2>
+        <span class="record-count">Showing {{ filteredSchedules.length }} record(s)</span>
+      </div>
+      <div class="table-wrapper">
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th rowspan="2" class="col-style">Style</th>
+              <th rowspan="2" class="col-desc">Description</th>
+              <th colspan="3" class="group-header group-ex">EX FACTORY</th>
+              <th colspan="3" class="group-header group-qty">QTY</th>
+              <th rowspan="2" class="col-status">Status</th>
+            </tr>
+            <tr>
+              <th class="sub-header">Previous</th>
+              <th class="sub-header">Current</th>
+              <th class="sub-header">EX Factory Diff</th>
+              <th class="sub-header text-right">Previous</th>
+              <th class="sub-header text-right">Current</th>
+              <th class="sub-header text-right">Qty Diff</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let r of filteredSchedules"
+                [class.row-added]="r.status === 'Added'"
+                [class.row-removed]="r.status === 'Removed'"
+                [class.row-changed]="r.status === 'Changed'">
+              <td class="font-bold style-cell" (click)="filterByStyle(r.style)" title="Click to filter by style">{{ r.style }}</td>
+              <td class="desc-cell" [title]="r.description">{{ r.description }}</td>
+
+              <!-- EX FACTORY Group -->
+              <td>{{ r.julyExFactory }}</td>
+              <td>{{ r.augustExFactory }}</td>
+              <td [class.diff-positive]="r.exFactoryDiff.startsWith('+')"
+                  [class.diff-negative]="r.exFactoryDiff.startsWith('-')"
+                  [class.diff-new]="r.exFactoryDiff === 'New'"
+                  [class.diff-removed]="r.exFactoryDiff === 'Removed'">
+                {{ r.exFactoryDiff }}
+              </td>
+
+              <!-- QTY Group -->
+              <td class="text-right">{{ r.julyQty !== null ? (r.julyQty | number) : '-' }}</td>
+              <td class="text-right">{{ r.augustQty !== null ? (r.augustQty | number) : '-' }}</td>
+              <td class="text-right font-bold"
+                  [class.diff-positive]="r.qtyDiff > 0"
+                  [class.diff-negative]="r.qtyDiff < 0">
+                {{ r.qtyDiffStr }}
+              </td>
+
+              <!-- Status -->
+              <td>
+                <span class="status-badge"
+                      [class.status-same]="r.status === 'Same'"
+                      [class.status-changed]="r.status === 'Changed'"
+                      [class.status-added]="r.status === 'Added'"
+                      [class.status-removed]="r.status === 'Removed'">
+                  {{ r.status === 'Added' ? 'SCHEDULE ADDED' : r.status === 'Removed' ? 'SCHEDULE REMOVED' : r.status }}
+                </span>
+              </td>
+            </tr>
+            <tr *ngIf="filteredSchedules.length === 0">
+              <td colspan="9" class="empty-row">No planning schedules match the selected filters.</td>
+            </tr>
+          </tbody>
+          <tfoot *ngIf="filteredSchedules.length > 0">
+            <tr class="grand-total-row">
+              <th colspan="5" class="text-right">Overall Qty Change (current filter):</th>
+              <th class="text-right">{{ filteredQtyTotals.julyQty | number }}</th>
+              <th class="text-right">{{ filteredQtyTotals.augustQty | number }}</th>
+              <th class="text-right"
+                  [class.diff-positive]="filteredQtyTotals.qtyDiff > 0"
+                  [class.diff-negative]="filteredQtyTotals.qtyDiff < 0">
+                {{ filteredQtyTotals.qtyDiff > 0 ? '+' : '' }}{{ filteredQtyTotals.qtyDiff | number }}
+              </th>
+              <th></th>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </section>
+
+    <!-- Top Level Style Summary Section -->
+    <section class="table-section style-summary-section">
+      <div class="table-header-title">
+        <h2>Top-Level Style Summary</h2>
+        <span class="record-count">Showing {{ filteredStyleSummaries.length }} style(s)</span>
+      </div>
+      <div class="table-wrapper">
+        <table class="style-summary-table">
+          <thead>
+            <tr>
+              <th>Style</th>
+              <th>Description</th>
+              <th class="text-right">Previous Qty</th>
+              <th class="text-right">Current Qty</th>
+              <th class="text-right">&Delta; Qty</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let s of filteredStyleSummaries" (click)="openDetail(s)" class="clickable-row">
+              <td class="font-bold">{{ s.style }}</td>
+              <td>{{ s.description }}</td>
+              <td class="text-right">{{ s.julyQty | number }}</td>
+              <td class="text-right">{{ s.augustQty | number }}</td>
+              <td class="text-right font-bold" [class.diff-positive]="s.qtyDelta > 0" [class.diff-negative]="s.qtyDelta < 0">
+                {{ s.qtyDelta > 0 ? '+' : '' }}{{ s.qtyDelta | number }}
+              </td>
+              <td>{{ statusBadge(s.status) }}</td>
+              <td>
+                <button class="btn-detail" (click)="$event.stopPropagation(); openDetail(s)">View Details</button>
+              </td>
+            </tr>
+            <tr *ngIf="filteredStyleSummaries.length === 0">
+              <td colspan="7" class="empty-row">No style summary matches this filter.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+      </div>
+
+      <!-- Independent style / season / month quantity comparison -->
+      <section class="dimension-comparison-section">
+        <div class="dimension-panel-title">
+          <h2>New Month-wise Comparison</h2>
+        </div>
+        <div class="dimension-filter-row">
+          <div class="filter-group">
+            <label for="dimensionStyle">Style</label>
+            <select id="dimensionStyle" [(ngModel)]="newComparisonStyle" class="filter-select">
+              <option value="ALL">All Styles</option>
+              <option *ngFor="let style of newComparisonStyles" [value]="style">{{ style }}</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="dimensionSeason">Season</label>
+            <select id="dimensionSeason" [(ngModel)]="newComparisonSeason" class="filter-select">
+              <option value="All">All</option>
+              <option *ngFor="let season of newComparisonSeasons" [value]="season">{{ season }}</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="dimensionMonth">Month</label>
+            <select id="dimensionMonth" [(ngModel)]="newComparisonMonth" class="filter-select">
+              <option value="All">All</option>
+              <option *ngFor="let month of newComparisonMonths" [value]="month">{{ month }}</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-wrapper">
+          <table class="dimension-comparison-table">
+            <thead><tr><th>Style</th><th>Season</th><th>Month</th><th class="text-right">Previous Qty</th><th class="text-right">Current Qty</th><th class="text-right">Variation</th></tr></thead>
+            <tbody>
+              <tr *ngFor="let row of newComparisonRows">
+                <td class="font-bold">{{ row.style }}</td><td>{{ row.season }}</td><td>{{ row.month }}</td>
+                <td class="text-right">{{ row.julyQty | number }}</td><td class="text-right">{{ row.augustQty | number }}</td>
+                <td class="text-right font-bold" [class.diff-positive]="row.variation > 0" [class.diff-negative]="row.variation < 0">{{ row.variation > 0 ? '+' : '' }}{{ row.variation | number }}</td>
+              </tr>
+              <tr *ngIf="newComparisonRows.length === 0"><td colspan="6" class="empty-row">No dimension comparison data is available.</td></tr>
+              <tr class="grand-total-row"><th colspan="3">Grand Total</th><th class="text-right">{{ newComparisonGrandTotal.julyQty | number }}</th><th class="text-right">{{ newComparisonGrandTotal.augustQty | number }}</th><th class="text-right" [class.diff-positive]="newComparisonGrandTotal.variation > 0" [class.diff-negative]="newComparisonGrandTotal.variation < 0">{{ newComparisonGrandTotal.variation > 0 ? '+' : '' }}{{ newComparisonGrandTotal.variation | number }}</th></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+  </ng-container>
+</main>
+
+<!-- Drill-down detail modal -->
+<div class="modal-backdrop" *ngIf="selectedStyleModal" (click)="closeDetail()">
+  <div class="modal modal-wide" (click)="$event.stopPropagation()">
+    <button class="modal-close" (click)="closeDetail()">✕</button>
+    <h2>Style: {{ selectedStyleModal.style }}</h2>
+    <p class="modal-description">{{ selectedStyleModal.description }}</p>
+
+    <div class="modal-summary-bar">
+      <span><strong>Previous Total Qty:</strong> {{ selectedStyleModal.julyQty | number }}</span>
+      <span><strong>Current Total Qty:</strong> {{ selectedStyleModal.augustQty | number }}</span>
+      <span>
+        <strong>Qty Change:</strong>
+        <span [class.diff-positive]="selectedStyleModal.qtyDelta > 0" [class.diff-negative]="selectedStyleModal.qtyDelta < 0">
+          {{ selectedStyleModal.qtyDelta > 0 ? '+' : '' }}{{ selectedStyleModal.qtyDelta | number }}
+        </span>
+      </span>
+      <span><strong>Priority:</strong> {{ statusBadge(selectedStyleModal.status) }}</span>
+    </div>
+
+    <h3>Schedule Comparison Records (One Record = One Row)</h3>
+    <div class="table-wrapper">
+      <table class="comparison-table">
+        <thead>
+          <tr>
+            <th rowspan="2">Style</th>
+            <th rowspan="2">Description</th>
+            <th colspan="3" class="group-header group-ex">EX FACTORY</th>
+            <th colspan="3" class="group-header group-qty">QTY</th>
+            <th rowspan="2">Status</th>
+          </tr>
+          <tr>
+            <th class="sub-header">Previous</th>
+            <th class="sub-header">Current</th>
+            <th class="sub-header">EX Factory Diff</th>
+            <th class="sub-header text-right">Previous</th>
+            <th class="sub-header text-right">Current</th>
+            <th class="sub-header text-right">Qty Diff</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let r of selectedStyleModal.schedules"
+              [class.row-added]="r.status === 'Added'"
+              [class.row-removed]="r.status === 'Removed'"
+              [class.row-changed]="r.status === 'Changed'">
+            <td class="font-bold">{{ r.style }}</td>
+            <td class="desc-cell">{{ r.description }}</td>
+
+            <td>{{ r.julyExFactory }}</td>
+            <td>{{ r.augustExFactory }}</td>
+            <td [class.diff-positive]="r.exFactoryDiff.startsWith('+')"
+                [class.diff-negative]="r.exFactoryDiff.startsWith('-')"
+                [class.diff-new]="r.exFactoryDiff === 'New'"
+                [class.diff-removed]="r.exFactoryDiff === 'Removed'">
+              {{ r.exFactoryDiff }}
+            </td>
+
+            <td class="text-right">{{ r.julyQty !== null ? (r.julyQty | number) : '-' }}</td>
+            <td class="text-right">{{ r.augustQty !== null ? (r.augustQty | number) : '-' }}</td>
+            <td class="text-right font-bold"
+                [class.diff-positive]="r.qtyDiff > 0"
+                [class.diff-negative]="r.qtyDiff < 0">
+              {{ r.qtyDiffStr }}
+            </td>
+
+            <td>
+              <span class="status-badge"
+                    [class.status-same]="r.status === 'Same'"
+                    [class.status-changed]="r.status === 'Changed'"
+                    [class.status-added]="r.status === 'Added'"
+                    [class.status-removed]="r.status === 'Removed'">
+                {{ r.status === 'Added' ? 'SCHEDULE ADDED' : r.status === 'Removed' ? 'SCHEDULE REMOVED' : r.status }}
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

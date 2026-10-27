@@ -1,0 +1,22 @@
+{
+  "/production/api": {
+    "target": "http://localhost:4000",
+    "secure": false,
+    "changeOrigin": true
+  },
+  "/cost/api": {
+    "target": "http://localhost:4000",
+    "secure": false,
+    "changeOrigin": true
+  },
+  "/planning/api": {
+    "target": "http://localhost:4000",
+    "secure": false,
+    "changeOrigin": true
+  },
+  "/api": {
+    "target": "http://localhost:4000",
+    "secure": false,
+    "changeOrigin": true
+  }
+}

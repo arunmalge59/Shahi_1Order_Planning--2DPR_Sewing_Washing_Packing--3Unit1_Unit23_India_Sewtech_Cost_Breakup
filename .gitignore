@@ -1,0 +1,43 @@
+node_modules/
+.angular/
+dist/
+
+# Environment files
+.env
+!.env.example
+
+# Logs and caches
+*.log
+npm-debug.log*
+logs/
+log/
+.cache/
+cache/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+htmlcov/
+.coverage
+.coverage.*
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+*.swp
+*.swo
+*~
+
+backend/modules/production/uploads/*
+backend/modules/production/outputs/*
+!backend/modules/production/uploads/.gitkeep
+!backend/modules/production/outputs/.gitkeep

@@ -1,0 +1,70 @@
+<main class="chart-variation-container">
+  <header class="page-header">
+    <div class="header-content">
+      <h1>H&M Non-Denim Chart Variation</h1>
+      <p class="subtitle">Compare Previous Week vs This Week</p>
+    </div>
+    <button class="back-button" type="button" (click)="goBack()">← Back to Order File Generator</button>
+  </header>
+
+  <section class="upload-section">
+    <div class="upload-card">
+      <div class="card-header">
+        <span class="step-number">01</span>
+        <div>
+          <p class="eyebrow">PREVIOUS WEEK</p>
+          <h2>Previous Week Excel File</h2>
+        </div>
+      </div>
+      <label class="file-picker">
+        Choose File
+        <input type="file" accept=".xlsx,.xls" (change)="onPreviousWeekFileSelected($event)" />
+      </label>
+      <p class="file-name">{{ previousWeekFile ? previousWeekFile.name : 'No file chosen' }}</p>
+    </div>
+
+    <div class="upload-card">
+      <div class="card-header">
+        <span class="step-number">02</span>
+        <div>
+          <p class="eyebrow">CURRENT WEEK</p>
+          <h2>Current Week Excel File</h2>
+        </div>
+      </div>
+      <label class="file-picker">
+        Choose File
+        <input type="file" accept=".xlsx,.xls" (change)="onCurrentWeekFileSelected($event)" />
+      </label>
+      <p class="file-name">{{ currentWeekFile ? currentWeekFile.name : 'No file chosen' }}</p>
+    </div>
+  </section>
+
+  <section class="month-filter-section" *ngIf="monthOptions.length">
+    <div class="filter-field">
+      <label for="startMonth">Start Month</label>
+      <select id="startMonth" [(ngModel)]="startMonth">
+        <option *ngFor="let month of monthOptions" [value]="month">{{ month }}</option>
+      </select>
+    </div>
+
+    <div class="filter-field">
+      <label for="endMonth">End Month</label>
+      <select id="endMonth" [(ngModel)]="endMonth">
+        <option *ngFor="let month of monthOptions" [value]="month">{{ month }}</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="action-section">
+    <button
+      class="primary-button"
+      [disabled]="!previousWeekFile || !currentWeekFile || loading"
+      (click)="compareCharts()"
+    >
+      {{ loading ? 'Generating...' : 'COMPARE CHART' }}
+    </button>
+  </section>
+
+  <p class="error-message" *ngIf="errorMessage">{{ errorMessage }}</p>
+  <p class="success-message" *ngIf="successMessage">✓ {{ successMessage }}</p>
+</main>

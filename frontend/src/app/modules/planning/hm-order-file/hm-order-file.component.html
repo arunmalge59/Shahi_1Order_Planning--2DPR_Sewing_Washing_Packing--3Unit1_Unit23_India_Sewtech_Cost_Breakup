@@ -1,0 +1,137 @@
+<main class="order-container">
+  <section class="order-panel">
+    <div class="panel-heading"><span>01</span>
+      <div>
+        <p class="eyebrow">SOURCE WORKBOOK</p>
+        <h2>Upload H&amp;M Planning Workbook</h2>
+      </div>
+    </div>
+    <label class="file-picker">Choose File<input type="file" accept=".xlsx,.xls"
+        (change)="onFileSelected($event)" /></label>
+    <p class="file-name">Selected file: {{ file ? file.name : 'No file chosen' }}</p>
+  </section>
+
+  <section class="order-panel">
+    <div class="panel-heading"><span>02</span>
+      <div>
+        <p class="eyebrow">OPTIONAL — FR STYLE MATCHING</p>
+        <h2>Upload FR Style Sheet</h2>
+      </div>
+    </div>
+    <label class="file-picker">Choose File<input type="file" accept=".xlsx,.xls"
+        (change)="onFrFileSelected($event)" /></label>
+    <p class="file-name">Selected file: {{ frFile ? frFile.name : 'No file chosen (optional)' }}</p>
+    <p class="hint-text" *ngIf="frFile">O.PROD / O.UDITEM / O.Descrip will be pulled from this file's FR Style and FR
+      Product columns.</p>
+    <p class="hint-text" *ngIf="!frFile">Skip this if you don't have it yet — the order file will still be generated
+      using the raw style names.</p>
+    <button class="clear-button" type="button" *ngIf="frFile" (click)="clearFrFile()">Remove FR file</button>
+  </section>
+
+  <section class="order-panel compact-panel">
+    <div class="panel-heading"><span>03</span>
+      <div>
+        <p class="eyebrow">ORDER PERIOD</p>
+        <h2>Week Code</h2>
+      </div>
+    </div>
+    <label for="hmWeekCode">Week code</label>
+    <input id="hmWeekCode" class="week-input" type="text" [(ngModel)]="weekCode" maxlength="12" />
+  </section>
+
+  <section class="action-panel">
+    <button class="primary-button" [disabled]="!file || loading" (click)="createOrderFile()">{{ loading ? 'Creating...'
+      : 'Create H&amp;M Order File' }}</button>
+    <button class="download-button" [disabled]="!result" (click)="downloadOrderFile()">Download H&amp;M Order
+      File</button>
+  </section>
+  <p class="error" *ngIf="errorMessage">{{ errorMessage }}</p>
+
+  <ng-container *ngIf="result as generated">
+    <section class="created-banner">
+      <p class="eyebrow">H&amp;M ORDER FILE CREATED</p>
+      <h2>Projection orders are ready for review.</h2>
+    </section>
+    <section class="summary-grid">
+      <div><strong>{{ generated.summary.totalRows | number }}</strong><span>Total Source Rows</span></div>
+      <div class="projection"><strong>{{ generated.summary.projectionRows | number }}</strong><span>Projection
+          Rows</span></div>
+      <div class="confirmed"><strong>{{ generated.summary.confirmedRows | number }}</strong><span>Confirmed Rows
+          Ignored</span></div>
+      <div><strong>{{ generated.summary.generatedOrders | number }}</strong><span>Generated Orders</span></div>
+      <div class="skipped"><strong>{{ generated.summary.skippedRows | number }}</strong><span>Skipped Projection
+          Rows</span></div>
+    </section>
+
+    <section class="fr-status-banner" *ngIf="generated.summary.frProvided">
+      <p class="eyebrow">FR STYLE MATCHING</p>
+      <p>
+        Matched <strong>{{ generated.summary.frMatchedRows | number }}</strong> of {{ generated.summary.projectionRows |
+        number }} projection rows against
+        {{ generated.summary.frRowCount | number }} FR sheet entries.
+        <span *ngIf="generated.summary.frMissingRows"> {{ generated.summary.frMissingRows | number }} row(s) had no FR
+          match and were left out of the file — add those styles to the FR sheet and regenerate to include them.</span>
+      </p>
+    </section>
+    <section class="fr-status-banner" *ngIf="!generated.summary.frProvided">
+      <p class="eyebrow">FR STYLE MATCHING</p>
+      <p>No FR file was provided — O.PROD, O.UDITEM and O.Descrip use the raw style text and product description from
+        the planning workbook.</p>
+    </section>
+
+    <section class="validation-panel" *ngIf="generated.validationErrors.length">
+      <button class="validation-toggle" type="button" (click)="showValidationErrors = !showValidationErrors">
+        {{ showValidationErrors ? 'Hide Validation Errors' : 'View Validation Errors' }} ({{
+        generated.validationErrors.length }})
+      </button>
+      <div class="table-wrapper" *ngIf="showValidationErrors">
+        <table>
+          <thead>
+            <tr>
+              <th>Source Row</th>
+              <th>Style</th>
+              <th>Qty</th>
+              <th>Proj Ex-fty</th>
+              <th>Proj PCD</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let validationError of generated.validationErrors"
+              [class.fr-missing-row]="validationError.type === 'fr-missing'">
+              <td>{{ validationError.sourceRowNumber }}</td>
+              <td>{{ validationError.style || '-' }}</td>
+              <td>{{ validationError.qty || '-' }}</td>
+              <td>{{ validationError.projExFty || '-' }}</td>
+              <td>{{ validationError.projPcd || '-' }}</td>
+              <td>{{ validationError.reason }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="preview-panel">
+      <div class="preview-heading">
+        <div>
+          <p class="eyebrow">PREVIEW</p>
+          <h2>Generated H&amp;M Orders</h2>
+        </div><span>{{ generated.preview.length }} shown</span>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th *ngFor="let column of previewColumns">{{ column }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let row of generated.preview">
+              <td *ngFor="let column of previewColumns">{{ row[column] }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </ng-container>
+</main>

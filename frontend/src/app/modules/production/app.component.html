@@ -1,0 +1,820 @@
+<div class="app-wrapper min-h-screen">
+  <!-- Left Sidebar Navigation -->
+  <aside class="sidebar" [class.sidebar-open]="mobileNavOpen" *ngIf="!externalNavigation">
+    <div class="sidebar-brand">
+      <span class="brand-mark">DPR</span>
+      <div>
+        <div class="brand-name">Daily DPR</div>
+        <div class="brand-sub-inline">Line Plan Workspace</div>
+      </div>
+    </div>
+
+    <!-- Unit 1 Nav Section -->
+    <div class="sidebar-nav-group">
+      <div class="sidebar-group-title">
+        <span>Unit 1</span>
+      </div>
+      <button
+        class="sidebar-nav-item"
+        [class.active]="activeUnit === 'unit1' && pageMode === 'full'"
+        (click)="setNav('unit1', 'full')"
+      >
+        <svg class="sidebar-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></svg>
+        Plan Generator
+      </button>
+      <button
+        class="sidebar-nav-item"
+        [class.active]="activeUnit === 'unit1' && pageMode === 'daily'"
+        (click)="setNav('unit1', 'daily')"
+      >
+        <svg class="sidebar-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M5 14v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg>
+        Daily Actuals Upload
+      </button>
+    </div>
+
+    <!-- Unit 23 Nav Section -->
+    <div class="sidebar-nav-group">
+      <div class="sidebar-group-title">
+        <span>Unit 23</span>
+      </div>
+      <button
+        class="sidebar-nav-item"
+        [class.active]="activeUnit === 'unit23' && pageMode === 'full'"
+        [class.u23-active]="activeUnit === 'unit23' && pageMode === 'full'"
+        (click)="setNav('unit23', 'full')"
+      >
+        <svg class="sidebar-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></svg>
+        Plan Generator
+      </button>
+      <button
+        class="sidebar-nav-item"
+        [class.active]="activeUnit === 'unit23' && pageMode === 'daily'"
+        [class.u23-active]="activeUnit === 'unit23' && pageMode === 'daily'"
+        (click)="setNav('unit23', 'daily')"
+      >
+        <svg class="sidebar-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M5 14v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg>
+        Daily Actuals Upload
+      </button>
+    </div>
+  </aside>
+  <button
+    *ngIf="!externalNavigation && mobileNavOpen"
+    type="button"
+    class="sidebar-scrim"
+    aria-label="Close navigation"
+    (click)="toggleMobileNav()"
+  ></button>
+
+  <!-- Main Content Area -->
+  <main class="main-content">
+    <header class="topbar">
+      <div class="topbar-title">
+        <button *ngIf="!externalNavigation" type="button" class="mobile-nav-toggle" aria-label="Open navigation" (click)="toggleMobileNav()">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <div>
+          <div class="topbar-kicker">Line Plan Workspace</div>
+          <div class="topbar-heading">
+            {{ activeUnit === 'unit1' ? 'Unit 1' : 'Unit 23' }}
+            <span class="breadcrumb-divider">/</span>
+            {{ pageMode === 'full' ? 'Plan Generator' : 'Daily Actuals Upload' }}
+          </div>
+        </div>
+      </div>
+      <div class="topbar-actions" *ngIf="activeUnit === 'unit1' && view === 'result' && pageMode === 'full'">
+        <button class="btn btn-sm btn-link" (click)="reset()">&larr; Start New Plan</button>
+      </div>
+      <div class="topbar-actions" *ngIf="activeUnit === 'unit23' && unit23View === 'result' && pageMode === 'full'">
+        <button class="btn btn-sm btn-link" (click)="resetUnit23()">&larr; Start New Plan</button>
+      </div>
+    </header>
+
+    <div class="db-warning" *ngIf="!dbAvailable">
+      Database is currently unreachable &mdash; uploads still process and download normally, but job history won't be saved until MySQL is back up.
+    </div>
+
+    <!-- Container for Unit 1 View -->
+    <div class="card-main" *ngIf="activeUnit === 'unit1'">
+      <!-- Standalone Daily Actuals Upload Mode -->
+      <section class="section upload-center daily-workspace" *ngIf="pageMode === 'daily'">
+        <div class="upload-hero">
+          <span class="eyebrow">Unit 1 · Daily workflow</span>
+          <h2>Daily Actuals Upload</h2>
+          <p>Upload your existing Plan vs Actuals workbook, plus either or both daily performance reports, to accumulate actuals.</p>
+        </div>
+
+        <div class="direct-grid daily-upload-grid unit1-upload-grid grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div class="direct-box upload-drop-area" [class.dragover]="directUploadDragTarget === 'unit1-workbook'" (dragover)="onDirectUploadDragOver($event, 'unit1-workbook')" (dragleave)="onDirectUploadDragLeave('unit1-workbook')" (drop)="onDirectUploadDrop($event, 'unit1-workbook')">
+            <label class="d-label">1. Existing Workbook (.xlsx) <span class="field-status required">Required</span></label>
+            <div class="file-chip" *ngIf="directWorkbookFile">
+              <span class="file-icon">&#128196;</span>
+              <span class="file-name">{{ directWorkbookFile.name }}</span>
+              <span class="file-type">{{ fileExtension(directWorkbookFile) }}</span>
+              <button class="chip-clear" (click)="directWorkbookFile = null">&times;</button>
+            </div>
+            <button class="btn btn-sm btn-outline file-picker-btn" *ngIf="!directWorkbookFile" (click)="wbInput.click()">Browse for workbook</button>
+            <input #wbInput type="file" accept=".xlsx,.xls" hidden (change)="onDirectWorkbookFileInputChange($event)" />
+          </div>
+
+          <div class="direct-box upload-drop-area" [class.dragover]="directUploadDragTarget === 'unit1-sewing'" (dragover)="onDirectUploadDragOver($event, 'unit1-sewing')" (dragleave)="onDirectUploadDragLeave('unit1-sewing')" (drop)="onDirectUploadDrop($event, 'unit1-sewing')">
+            <label class="d-label">2. Daily Sewing Report (.xlsx) <span class="field-status optional">Optional</span></label>
+            <div class="file-chip" *ngIf="directSewingReportFile">
+              <span class="file-icon">&#128196;</span>
+              <span class="file-name">{{ directSewingReportFile.name }}</span>
+              <span class="file-type">{{ fileExtension(directSewingReportFile) }}</span>
+              <button class="chip-clear" (click)="directSewingReportFile = null">&times;</button>
+            </div>
+            <button class="btn btn-sm btn-outline file-picker-btn" *ngIf="!directSewingReportFile" (click)="sewingRptInput.click()">Browse for sewing report</button>
+            <input #sewingRptInput type="file" accept=".xlsx,.xls" hidden (change)="onDirectSewingReportFileInputChange($event)" />
+          </div>
+
+          <div class="direct-box upload-drop-area" [class.dragover]="directUploadDragTarget === 'unit1-wash-pack'" (dragover)="onDirectUploadDragOver($event, 'unit1-wash-pack')" (dragleave)="onDirectUploadDragLeave('unit1-wash-pack')" (drop)="onDirectUploadDrop($event, 'unit1-wash-pack')">
+            <label class="d-label">3. Daily Wash &amp; Pack Report (.xlsx) <span class="field-status optional">Optional</span></label>
+            <div class="file-chip" *ngIf="directWashPackReportFile">
+              <span class="file-icon">&#128196;</span>
+              <span class="file-name">{{ directWashPackReportFile.name }}</span>
+              <span class="file-type">{{ fileExtension(directWashPackReportFile) }}</span>
+              <button class="chip-clear" (click)="directWashPackReportFile = null">&times;</button>
+            </div>
+            <button class="btn btn-sm btn-outline file-picker-btn" *ngIf="!directWashPackReportFile" (click)="wpRptInput.click()">Browse for Wash &amp; Pack report</button>
+            <input #wpRptInput type="file" accept=".xlsx,.xls" hidden (change)="onDirectWashPackReportFileInputChange($event)" />
+          </div>
+        </div>
+
+        <ng-container *ngIf="directActualsState === 'idle'">
+          <button
+            class="btn btn-primary"
+            [disabled]="!directWorkbookFile"
+            (click)="fillActualsDirect()"
+          >
+            Update Actuals &rarr;
+          </button>
+          <p class="error-msg" *ngIf="directActualsError">{{ directActualsError }}</p>
+        </ng-container>
+
+        <div class="loading-center" *ngIf="directActualsState === 'loading'">
+          <div class="spinner"></div>
+          <p class="loading-text">Updating daily actuals&hellip;</p>
+        </div>
+
+        <div class="card-done-view" *ngIf="directActualsState === 'done'">
+          <div class="success-badge">&check; Daily Actuals Updated</div>
+          <div class="compact-stats">
+            <div class="c-stat ok"><span class="c-val">{{ directActualsSummary.cellsFilled ?? 0 }}</span> <span class="c-lbl">Cells Filled</span></div>
+            <div class="c-stat"><span class="c-val">{{ directActualsSummary.sheetsUpdated ?? 0 }}</span> <span class="c-lbl">Sheets</span></div>
+          </div>
+          <p class="info-note">&check; Order Summary and past daily actuals preserved 100%.</p>
+
+          <a class="btn btn-download" [href]="directActualsDownloadUrl" download>
+            Download Updated Plan vs Actuals &rarr;
+          </a>
+          <button class="btn btn-xs btn-link" (click)="resetDirectActuals()">Upload Next Daily File</button>
+        </div>
+      </section>
+
+      <ng-container *ngIf="pageMode === 'full'">
+        <!-- Initial Upload View -->
+        <section class="section upload-center" *ngIf="view === 'upload'">
+          <div class="upload-hero">
+            <h2>Upload Book1 Line Plan</h2>
+            <p>Upload your master Line Plan Excel file to generate the Plan vs Actuals workbook.</p>
+          </div>
+
+          <div
+            class="dropzone"
+            [class.dragover]="dragOver"
+            (click)="fileInput.click()"
+            (dragover)="onDragOver($event)"
+            (dragleave)="onDragLeave()"
+            (drop)="onDrop($event)"
+            *ngIf="!selectedFile"
+          >
+            <input
+              #fileInput
+              type="file"
+              accept=".xlsx,.xls"
+              hidden
+              (change)="onFileInputChange($event)"
+            />
+            <div class="dropzone-icon">&#8593;</div>
+            <p class="dropzone-title">Drag &amp; drop your Book1 file here</p>
+            <p class="dropzone-sub">or click to browse &mdash; .xlsx / .xls</p>
+          </div>
+
+          <div class="file-chip" *ngIf="selectedFile">
+            <span class="file-icon">&#128196;</span>
+            <span class="file-name">{{ selectedFile.name }}</span>
+            <button class="chip-clear" title="Remove" (click)="clearFile()">&times;</button>
+          </div>
+
+          <button class="btn btn-primary" [disabled]="!selectedFile" (click)="process()">
+            Process Line Plan <span class="arrow">&rarr;</span>
+          </button>
+
+          <p class="error-msg" *ngIf="errorMessage">{{ errorMessage }}</p>
+        </section>
+
+        <!-- Loading View -->
+        <section class="section loading-center" *ngIf="view === 'loading'">
+          <div class="spinner"></div>
+          <p class="loading-text">Processing your Line Plan&hellip;</p>
+        </section>
+
+        <!-- 100vh Horizontal 3-Step Result View -->
+        <div class="horizontal-flow" *ngIf="view === 'result'">
+          <!-- Stepper Header -->
+          <div class="flow-stepper">
+            <div class="step-indicator active">
+              <span class="step-num">1</span>
+              <span class="step-text">Line Plan &amp; Exclusions</span>
+            </div>
+            <div class="step-line"></div>
+            <div class="step-indicator" [class.active]="orderSummaryState === 'done'">
+              <span class="step-num">2</span>
+              <span class="step-text">Order Summary Upload</span>
+            </div>
+            <div class="step-line"></div>
+            <div class="step-indicator" [class.active]="actualsState === 'done'">
+              <span class="step-num">3</span>
+              <span class="step-text">Sewing Actuals Upload</span>
+            </div>
+          </div>
+
+          <!-- 3-Column Horizontal Step Cards -->
+          <div class="steps-grid">
+            <!-- STEP 1 CARD -->
+            <div class="step-card">
+              <div class="card-header">
+                <span class="card-step-badge">STEP 1</span>
+                <h3>Line Plan &amp; Exclusions</h3>
+              </div>
+              <p class="card-sub">Base workbook generated from <strong>{{ selectedFile?.name || 'Book1.xlsx' }}</strong>.</p>
+
+              <div class="compact-stats">
+                <div class="c-stat"><span class="c-val">{{ summary.styles ?? 0 }}</span> <span class="c-lbl">Styles</span></div>
+                <div class="c-stat"><span class="c-val">{{ summary.dates ?? 0 }}</span> <span class="c-lbl">Days</span></div>
+                <div class="c-stat"><span class="c-val">{{ summary.rows ?? 0 }}</span> <span class="c-lbl">Rows</span></div>
+              </div>
+
+              <!-- Exclude Dates Panel -->
+              <div class="exclude-panel" *ngIf="availableDates.length">
+                <div class="exclude-head">
+                  <h4>Exclude Dates</h4>
+                  <span class="ex-count">Excluded: {{ excludedCount }}</span>
+                </div>
+
+                <div class="exclude-controls">
+                  <select [(ngModel)]="selectedYear" (change)="onYearChange()">
+                    <option *ngFor="let year of years" [value]="year">{{ year }}</option>
+                  </select>
+                  <select [(ngModel)]="selectedMonth" *ngIf="selectedYear">
+                    <option *ngFor="let month of months" [value]="month">{{ monthName(month) }}</option>
+                  </select>
+                </div>
+
+                <div class="calendar-compact" *ngIf="selectedYear && selectedMonth">
+                  <div class="calendar-title">{{ selectedMonthTitle }}</div>
+                  <div class="calendar-grid calendar-weekdays">
+                    <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
+                  </div>
+                  <div class="calendar-scroll">
+                    <div class="calendar-grid" *ngFor="let week of calendarWeeks">
+                      <button
+                        type="button"
+                        class="calendar-day"
+                        *ngFor="let day of week"
+                        [class.empty]="!day.day"
+                        [class.weekend]="day.isWeekend"
+                        [class.unavailable]="day.day && !day.isAvailable"
+                        [class.selected]="isExcluded(day.iso)"
+                        [disabled]="!day.day || !day.isAvailable"
+                        (click)="toggleDate(day)"
+                      >
+                        <ng-container *ngIf="day.day">
+                          <span>{{ day.day }}</span>
+                        </ng-container>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                class="btn btn-sm btn-outline card-footer-btn"
+                (click)="downloadGenerated()"
+                [disabled]="downloading"
+              >
+                <span *ngIf="!downloading">Download Base Plan Excel &rarr;</span>
+                <span *ngIf="downloading">Applying Exclusions...</span>
+              </button>
+            </div>
+
+            <!-- STEP 2 CARD -->
+            <div class="step-card" [class.step-active]="orderSummaryState === 'idle'" [class.step-done]="orderSummaryState === 'done'">
+              <div class="card-header">
+                <span class="card-step-badge">STEP 2</span>
+                <h3>Order Summary Upload</h3>
+              </div>
+              <p class="card-sub">Upload Order Sheet (.xlsx) to calculate Order Summary per Style.</p>
+
+              <ng-container *ngIf="orderSummaryState === 'idle'">
+                <div
+                  class="dropzone dropzone-sm"
+                  [class.dragover]="orderSummaryDragOver"
+                  (click)="orderSummaryFileInput.click()"
+                  (dragover)="onOrderSummaryDragOver($event)"
+                  (dragleave)="onOrderSummaryDragLeave()"
+                  (drop)="onOrderSummaryDrop($event)"
+                  *ngIf="!orderSummaryFile"
+                >
+                  <input
+                    #orderSummaryFileInput
+                    type="file"
+                    accept=".xlsx,.xls"
+                    hidden
+                    (change)="onOrderSummaryFileInputChange($event)"
+                  />
+                  <div class="dropzone-icon">&#8593;</div>
+                  <p class="dropzone-title">Upload Order Sheet</p>
+                  <p class="dropzone-sub">.xlsx / .xls</p>
+                </div>
+
+                <div class="file-chip" *ngIf="orderSummaryFile">
+                  <span class="file-icon">&#128196;</span>
+                  <span class="file-name">{{ orderSummaryFile.name }}</span>
+                  <button class="chip-clear" title="Remove" (click)="clearOrderSummaryFile()">&times;</button>
+                </div>
+
+                <button
+                  class="btn btn-primary btn-block"
+                  [disabled]="!orderSummaryFile"
+                  (click)="fillOrderSummary()"
+                >
+                  Process Order Data &rarr;
+                </button>
+                <p class="error-msg" *ngIf="orderSummaryError">{{ orderSummaryError }}</p>
+              </ng-container>
+
+              <div class="card-loading" *ngIf="orderSummaryState === 'loading'">
+                <div class="spinner spinner-sm"></div>
+                <p>Processing Order Sheet&hellip;</p>
+              </div>
+
+              <div class="card-done-view" *ngIf="orderSummaryState === 'done'">
+                <div class="success-badge">&check; Order Summary Processed</div>
+                <div class="compact-stats">
+                  <div class="c-stat ok"><span class="c-val">{{ orderSummarySummary.stylesMatched ?? 0 }}</span> <span class="c-lbl">Matched</span></div>
+                  <div class="c-stat err" *ngIf="orderSummarySummary.stylesNotFound"><span class="c-val">{{ orderSummarySummary.stylesNotFound }}</span> <span class="c-lbl">Not Found</span></div>
+                </div>
+
+                <a class="btn btn-sm btn-primary card-footer-btn" [href]="orderSummaryDownloadUrl" download>
+                  Download Updated Excel &rarr;
+                </a>
+                <button class="btn btn-xs btn-link" (click)="resetOrderSummary()">Replace Order Sheet</button>
+              </div>
+            </div>
+
+            <!-- STEP 3 CARD -->
+            <div class="step-card" [class.step-active]="actualsState === 'idle'" [class.step-done]="actualsState === 'done'">
+              <div class="card-header">
+                <span class="card-step-badge">STEP 3</span>
+                <h3>Fill Sewing Actuals</h3>
+              </div>
+              <p class="card-sub">Upload daily performance reports to accumulate Sewing Actuals.</p>
+
+              <ng-container *ngIf="actualsState === 'idle'">
+                <div
+                  class="dropzone dropzone-sm"
+                  [class.dragover]="actualsDragOver"
+                  (click)="actualsFileInput.click()"
+                  (dragover)="onActualsDragOver($event)"
+                  (dragleave)="onActualsDragLeave()"
+                  (drop)="onActualsDrop($event)"
+                  *ngIf="!actualsFile"
+                >
+                  <input
+                    #actualsFileInput
+                    type="file"
+                    accept=".xlsx,.xls"
+                    hidden
+                    (change)="onActualsFileInputChange($event)"
+                  />
+                  <div class="dropzone-icon">&#8593;</div>
+                  <p class="dropzone-title">Upload Performance Report</p>
+                  <p class="dropzone-sub">Daily report .xlsx / .xls</p>
+                </div>
+
+                <div class="file-chip" *ngIf="actualsFile">
+                  <span class="file-icon">&#128196;</span>
+                  <span class="file-name">{{ actualsFile.name }}</span>
+                  <button class="chip-clear" title="Remove" (click)="clearActualsFile()">&times;</button>
+                </div>
+
+                <button
+                  class="btn btn-primary btn-block"
+                  [disabled]="!actualsFile"
+                  (click)="fillActuals()"
+                >
+                  Fill Sewing Actuals &rarr;
+                </button>
+                <p class="error-msg" *ngIf="actualsError">{{ actualsError }}</p>
+              </ng-container>
+
+              <div class="card-loading" *ngIf="actualsState === 'loading'">
+                <div class="spinner spinner-sm"></div>
+                <p>Filling Sewing Actuals&hellip;</p>
+              </div>
+
+              <div class="card-done-view" *ngIf="actualsState === 'done'">
+                <div class="success-badge">&check; Sewing Actuals Updated</div>
+                <div class="compact-stats">
+                  <div class="c-stat ok"><span class="c-val">{{ actualsSummary.cellsFilled ?? 0 }}</span> <span class="c-lbl">Cells Filled</span></div>
+                  <div class="c-stat"><span class="c-val">{{ actualsSummary.sheetsUpdated ?? 0 }}</span> <span class="c-lbl">Sheets</span></div>
+                </div>
+                <p class="info-note">&check; Order Summary &amp; past actuals preserved 100%.</p>
+
+                <a class="btn btn-sm btn-download card-footer-btn" [href]="actualsDownloadUrl" download>
+                  Download Final Plan vs Actuals &rarr;
+                </a>
+                <button class="btn btn-xs btn-link" (click)="resetActuals()">Upload Next Daily File</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </ng-container>
+    </div>
+
+    <!-- Container for Unit 23 View -->
+    <div class="card-main" *ngIf="activeUnit === 'unit23'">
+      <!-- Unit 23 Daily Actuals Upload Mode -->
+      <section class="section upload-center daily-workspace" *ngIf="pageMode === 'daily'">
+        <div class="upload-hero">
+          <span class="eyebrow">Unit 23 · Daily workflow</span>
+          <h2>Daily Actuals Upload</h2>
+          <p>Upload an existing Plan vs Actuals workbook, an optional Sewing report, and one or more dated Wash &amp; Pack DPR reports.</p>
+        </div>
+
+        <div class="direct-grid daily-upload-grid unit23-upload-grid grid md:grid-cols-2 gap-4">
+          <div class="direct-box upload-drop-area" [class.dragover]="directUploadDragTarget === 'unit23-workbook'" (dragover)="onDirectUploadDragOver($event, 'unit23-workbook')" (dragleave)="onDirectUploadDragLeave('unit23-workbook')" (drop)="onDirectUploadDrop($event, 'unit23-workbook')">
+            <label class="d-label">1. Existing Workbook (.xlsx) <span class="field-status required">Required</span></label>
+            <div class="file-chip" *ngIf="unit23DirectWorkbookFile">
+              <span class="file-icon">&#128196;</span>
+              <span class="file-name">{{ unit23DirectWorkbookFile.name }}</span>
+              <span class="file-type">{{ fileExtension(unit23DirectWorkbookFile) }}</span>
+              <button class="chip-clear" (click)="unit23DirectWorkbookFile = null">&times;</button>
+            </div>
+            <button class="btn btn-sm btn-outline file-picker-btn" *ngIf="!unit23DirectWorkbookFile" (click)="u23WbInput.click()">Browse for workbook</button>
+            <input #u23WbInput type="file" accept=".xlsx,.xls" hidden (change)="onUnit23DirectWorkbookFileInputChange($event)" />
+          </div>
+
+          <div class="direct-box upload-drop-area" [class.dragover]="directUploadDragTarget === 'unit23-sewing'" (dragover)="onDirectUploadDragOver($event, 'unit23-sewing')" (dragleave)="onDirectUploadDragLeave('unit23-sewing')" (drop)="onDirectUploadDrop($event, 'unit23-sewing')">
+            <label class="d-label">2. Daily Sewing Report (.xlsx) <span class="field-status optional">Optional</span></label>
+            <div class="file-chip" *ngIf="unit23DirectSewingReportFile">
+              <span class="file-icon">&#128196;</span>
+              <span class="file-name">{{ unit23DirectSewingReportFile.name }}</span>
+              <span class="file-type">{{ fileExtension(unit23DirectSewingReportFile) }}</span>
+              <button class="chip-clear" (click)="unit23DirectSewingReportFile = null">&times;</button>
+            </div>
+            <button class="btn btn-sm btn-outline file-picker-btn" *ngIf="!unit23DirectSewingReportFile" (click)="u23SewingInput.click()">Browse for sewing report</button>
+            <input #u23SewingInput type="file" accept=".xlsx,.xls" hidden (change)="onUnit23DirectSewingReportFileInputChange($event)" />
+          </div>
+
+          <div class="direct-box dpr-section md:col-span-2">
+            <div class="dpr-section-heading">
+              <div>
+                <label class="d-label">3. Daily Wash &amp; Pack DPR (.xls/.xlsx) <span class="field-status optional">Optional</span></label>
+                <p class="card-sub">Add one report or several. Each DPR is applied to its selected report date.</p>
+              </div>
+              <button type="button" class="btn btn-sm btn-outline add-dpr-btn" (click)="addUnit23DprReport()">+ Add Another DPR</button>
+            </div>
+            <div class="dpr-reports-grid grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            <div class="dpr-report-card upload-drop-area" *ngFor="let report of unit23DirectDprReports; let i = index" [class.dragover]="directUploadDragTarget === 'unit23-dpr'" (dragover)="onDirectUploadDragOver($event, 'unit23-dpr')" (dragleave)="onDirectUploadDragLeave('unit23-dpr')" (drop)="onDirectUploadDrop($event, 'unit23-dpr', i)">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <span class="dpr-report-title">DPR Report {{ i + 1 }}</span>
+                <button type="button" class="chip-clear remove-dpr-btn" title="Remove DPR report {{ i + 1 }}" [attr.aria-label]="'Remove DPR report ' + (i + 1)" (click)="removeUnit23DprReport(i)">
+                  <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 14h12l1-14M9 7V4h6v3"/></svg>
+                </button>
+              </div>
+              <div class="file-chip" *ngIf="report.file">
+                <span class="file-icon">&#128196;</span>
+                <span class="file-name">{{ report.file.name }}</span>
+                <span class="file-type">{{ fileExtension(report.file) }}</span>
+                <button type="button" class="chip-clear" title="Clear selected file" (click)="clearUnit23DprReportFile(i)">&times;</button>
+              </div>
+              <button type="button" class="btn btn-sm btn-outline file-picker-btn" *ngIf="!report.file" (click)="u23DprInput.click()">Browse for DPR report</button>
+              <input #u23DprInput type="file" accept=".xlsx,.xls" hidden (change)="onUnit23DirectDprReportFileInputChange($event, i)" />
+
+              <div *ngIf="report.file" style="margin-top: 6px;">
+                <label style="font-size: 11px; font-weight: 600; color: var(--muted); display: block; margin-bottom: 2px;">Report Date (for DPR):</label>
+                <div style="font-size: 11px; font-weight: bold; color: #dc2626; margin-bottom: 4px; line-height: 1.3;">
+                  Select the date this report represents.
+                </div>
+                <input type="date" [(ngModel)]="report.reportDate" [ngModelOptions]="{standalone: true}" style="width: 100%; font-size: 12px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px;" />
+              </div>
+            </div>
+            </div>
+          </div>
+        </div>
+
+        <ng-container *ngIf="unit23DirectActualsState === 'idle'">
+          <button
+            class="btn btn-primary"
+            [disabled]="!unit23DirectWorkbookFile"
+            (click)="fillActualsDirectUnit23()"
+          >
+            Update Unit 23 Actuals <span aria-hidden="true">&rarr;</span>
+          </button>
+          <p class="error-msg" *ngIf="unit23DirectActualsError">{{ unit23DirectActualsError }}</p>
+        </ng-container>
+
+        <div class="loading-center" *ngIf="unit23DirectActualsState === 'loading'">
+          <div class="spinner"></div>
+          <p class="loading-text">Updating Unit 23 daily actuals&hellip;</p>
+        </div>
+
+        <div class="card-done-view" *ngIf="unit23DirectActualsState === 'done'">
+          <div class="success-badge" role="status">&check; Unit 23 Daily Actuals Updated</div>
+          <div class="compact-stats">
+            <div class="c-stat ok"><span class="c-val">{{ unit23DirectActualsSummary.cellsFilled ?? 0 }}</span> <span class="c-lbl">Cells Filled</span></div>
+            <div class="c-stat"><span class="c-val">{{ unit23DirectActualsSummary.sheetsUpdated ?? 0 }}</span> <span class="c-lbl">Sheets</span></div>
+            <div class="c-stat"><span class="c-val">{{ unit23DprFilesProcessed }}</span> <span class="c-lbl">DPR Files</span></div>
+          </div>
+          <p class="info-note">&check; Order Summary and past daily actuals preserved.</p>
+
+          <a class="btn btn-download" [href]="unit23DirectActualsDownloadUrl" download>
+            Download Updated Plan vs Actuals &rarr;
+          </a>
+          <button class="btn btn-xs btn-link" (click)="resetDirectActualsUnit23()">Upload Next Daily File</button>
+        </div>
+      </section>
+
+      <!-- Unit 23 Plan Generator Mode -->
+      <ng-container *ngIf="pageMode === 'full'">
+        <section class="section upload-center" *ngIf="unit23View === 'upload'">
+          <div class="upload-hero">
+            <h2>Unit 23 — Upload Book1 Line Plan</h2>
+            <p>Upload your master Line Plan Excel file to generate the Unit 23 Plan vs Actuals workbook.</p>
+          </div>
+
+          <div
+            class="dropzone"
+            (click)="u23FileInput.click()"
+            *ngIf="!unit23SelectedFile"
+          >
+            <input
+              #u23FileInput
+              type="file"
+              accept=".xlsx,.xls"
+              hidden
+              (change)="onUnit23FileInputChange($event)"
+            />
+            <div class="dropzone-icon">&#8593;</div>
+            <p class="dropzone-title">Drag &amp; drop Unit 23 Book1 file here</p>
+            <p class="dropzone-sub">or click to browse &mdash; .xlsx / .xls</p>
+          </div>
+
+          <div class="file-chip" *ngIf="unit23SelectedFile">
+            <span class="file-icon">&#128196;</span>
+            <span class="file-name">{{ unit23SelectedFile.name }}</span>
+            <button class="chip-clear" title="Remove" (click)="unit23SelectedFile = null">&times;</button>
+          </div>
+
+          <button class="btn btn-primary" [disabled]="!unit23SelectedFile" (click)="processUnit23()">
+            Process Unit 23 Line Plan <span class="arrow">&rarr;</span>
+          </button>
+
+          <p class="error-msg" *ngIf="unit23ErrorMessage">{{ unit23ErrorMessage }}</p>
+        </section>
+
+        <section class="section loading-center" *ngIf="unit23View === 'loading'">
+          <div class="spinner"></div>
+          <p class="loading-text">Processing Unit 23 Line Plan&hellip;</p>
+        </section>
+
+        <div class="horizontal-flow" *ngIf="unit23View === 'result'">
+          <!-- Stepper Header -->
+          <div class="flow-stepper">
+            <div class="step-indicator active">
+              <span class="step-num">1</span>
+              <span class="step-text">Line Plan &amp; Exclusions</span>
+            </div>
+            <div class="step-line"></div>
+            <div class="step-indicator" [class.active]="unit23OrderSummaryState === 'done'">
+              <span class="step-num">2</span>
+              <span class="step-text">Order Summary Upload</span>
+            </div>
+            <div class="step-line"></div>
+            <div class="step-indicator" [class.active]="unit23ActualsState === 'done'">
+              <span class="step-num">3</span>
+              <span class="step-text">Sewing Actuals Upload</span>
+            </div>
+          </div>
+
+          <!-- 3-Column Horizontal Step Cards -->
+          <div class="steps-grid">
+            <!-- STEP 1 CARD -->
+            <div class="step-card">
+              <div class="card-header">
+                <span class="card-step-badge">STEP 1</span>
+                <h3>Line Plan &amp; Exclusions</h3>
+              </div>
+              <p class="card-sub">Base workbook generated from <strong>{{ unit23SelectedFile?.name || 'Book1.xlsx' }}</strong>.</p>
+
+              <div class="compact-stats">
+                <div class="c-stat"><span class="c-val">{{ unit23Summary.styles ?? 0 }}</span> <span class="c-lbl">Styles</span></div>
+                <div class="c-stat"><span class="c-val">{{ unit23Summary.dates ?? 0 }}</span> <span class="c-lbl">Days</span></div>
+                <div class="c-stat"><span class="c-val">{{ unit23Summary.rows ?? 0 }}</span> <span class="c-lbl">Rows</span></div>
+              </div>
+
+              <!-- Exclude Dates Panel -->
+              <div class="exclude-panel" *ngIf="unit23AvailableDates.length">
+                <div class="exclude-head">
+                  <h4>Exclude Dates</h4>
+                  <span class="ex-count">Excluded: {{ unit23ExcludedCount }}</span>
+                </div>
+
+                <div class="exclude-controls">
+                  <select [(ngModel)]="unit23SelectedYear" (change)="onUnit23YearChange()">
+                    <option *ngFor="let year of unit23Years" [value]="year">{{ year }}</option>
+                  </select>
+                  <select [(ngModel)]="unit23SelectedMonth" *ngIf="unit23SelectedYear">
+                    <option *ngFor="let month of unit23Months" [value]="month">{{ monthName(month) }}</option>
+                  </select>
+                </div>
+
+                <div class="calendar-compact" *ngIf="unit23SelectedYear && unit23SelectedMonth">
+                  <div class="calendar-title">{{ unit23SelectedMonthTitle }}</div>
+                  <div class="calendar-grid calendar-weekdays">
+                    <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
+                  </div>
+                  <div class="calendar-scroll">
+                    <div class="calendar-grid" *ngFor="let week of unit23CalendarWeeks">
+                      <button
+                        type="button"
+                        class="calendar-day"
+                        *ngFor="let day of week"
+                        [class.empty]="!day.day"
+                        [class.weekend]="day.isWeekend"
+                        [class.unavailable]="day.day && !day.isAvailable"
+                        [class.selected]="isUnit23Excluded(day.iso)"
+                        [disabled]="!day.day || !day.isAvailable"
+                        (click)="toggleUnit23Date(day)"
+                      >
+                        <ng-container *ngIf="day.day">
+                          <span>{{ day.day }}</span>
+                        </ng-container>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                class="btn btn-sm btn-outline card-footer-btn"
+                (click)="downloadGeneratedUnit23()"
+                [disabled]="unit23Downloading"
+              >
+                <span *ngIf="!unit23Downloading">Download Base Plan Excel &rarr;</span>
+                <span *ngIf="unit23Downloading">Applying Exclusions...</span>
+              </button>
+            </div>
+
+            <!-- STEP 2 CARD -->
+            <div class="step-card" [class.step-active]="unit23OrderSummaryState === 'idle'" [class.step-done]="unit23OrderSummaryState === 'done'">
+              <div class="card-header">
+                <span class="card-step-badge">STEP 2</span>
+                <h3>Order Summary Upload</h3>
+              </div>
+              <p class="card-sub">Upload Order Sheet (.xlsx) to calculate Order Summary per Style.</p>
+
+              <ng-container *ngIf="unit23OrderSummaryState === 'idle'">
+                <div
+                  class="dropzone dropzone-sm"
+                  [class.dragover]="unit23OrderSummaryDragOver"
+                  (click)="u23OrderSummaryFileInput.click()"
+                  (dragover)="onUnit23OrderSummaryDragOver($event)"
+                  (dragleave)="onUnit23OrderSummaryDragLeave()"
+                  (drop)="onUnit23OrderSummaryDrop($event)"
+                  *ngIf="!unit23OrderSummaryFile"
+                >
+                  <input
+                    #u23OrderSummaryFileInput
+                    type="file"
+                    accept=".xlsx,.xls"
+                    hidden
+                    (change)="onUnit23OrderSummaryFileInputChange($event)"
+                  />
+                  <div class="dropzone-icon">&#8593;</div>
+                  <p class="dropzone-title">Upload Order Sheet</p>
+                  <p class="dropzone-sub">.xlsx / .xls</p>
+                </div>
+
+                <div class="file-chip" *ngIf="unit23OrderSummaryFile">
+                  <span class="file-icon">&#128196;</span>
+                  <span class="file-name">{{ unit23OrderSummaryFile.name }}</span>
+                  <button class="chip-clear" title="Remove" (click)="clearUnit23OrderSummaryFile()">&times;</button>
+                </div>
+
+                <button
+                  class="btn btn-primary btn-block"
+                  [disabled]="!unit23OrderSummaryFile"
+                  (click)="fillOrderSummaryUnit23()"
+                >
+                  Process Order Data &rarr;
+                </button>
+                <p class="error-msg" *ngIf="unit23OrderSummaryError">{{ unit23OrderSummaryError }}</p>
+              </ng-container>
+
+              <div class="card-loading" *ngIf="unit23OrderSummaryState === 'loading'">
+                <div class="spinner spinner-sm"></div>
+                <p>Processing Order Sheet&hellip;</p>
+              </div>
+
+              <div class="card-done-view" *ngIf="unit23OrderSummaryState === 'done'">
+                <div class="success-badge">&check; Order Summary Processed</div>
+                <div class="compact-stats">
+                  <div class="c-stat ok"><span class="c-val">{{ unit23OrderSummarySummary.stylesMatched ?? 0 }}</span> <span class="c-lbl">Matched</span></div>
+                  <div class="c-stat err" *ngIf="unit23OrderSummarySummary.stylesNotFound"><span class="c-val">{{ unit23OrderSummarySummary.stylesNotFound }}</span> <span class="c-lbl">Not Found</span></div>
+                </div>
+
+                <a class="btn btn-sm btn-primary card-footer-btn" [href]="unit23OrderSummaryDownloadUrl" download>
+                  Download Updated Excel &rarr;
+                </a>
+                <button class="btn btn-xs btn-link" (click)="resetOrderSummaryUnit23()">Replace Order Sheet</button>
+              </div>
+            </div>
+
+            <!-- STEP 3 CARD -->
+            <div class="step-card" [class.step-active]="unit23ActualsState === 'idle'" [class.step-done]="unit23ActualsState === 'done'">
+              <div class="card-header">
+                <span class="card-step-badge">STEP 3</span>
+                <h3>Fill Sewing Actuals</h3>
+              </div>
+              <p class="card-sub">Upload daily performance reports to accumulate Sewing Actuals.</p>
+
+              <ng-container *ngIf="unit23ActualsState === 'idle'">
+                <div
+                  class="dropzone dropzone-sm"
+                  [class.dragover]="unit23ActualsDragOver"
+                  (click)="u23ActualsFileInput.click()"
+                  (dragover)="onUnit23ActualsDragOver($event)"
+                  (dragleave)="onUnit23ActualsDragLeave()"
+                  (drop)="onUnit23ActualsDrop($event)"
+                  *ngIf="!unit23ActualsFile"
+                >
+                  <input
+                    #u23ActualsFileInput
+                    type="file"
+                    accept=".xlsx,.xls"
+                    hidden
+                    (change)="onUnit23ActualsFileInputChange($event)"
+                  />
+                  <div class="dropzone-icon">&#8593;</div>
+                  <p class="dropzone-title">Upload Performance Report</p>
+                  <p class="dropzone-sub">Daily report .xlsx / .xls</p>
+                </div>
+
+                <div class="file-chip" *ngIf="unit23ActualsFile">
+                  <span class="file-icon">&#128196;</span>
+                  <span class="file-name">{{ unit23ActualsFile.name }}</span>
+                  <button class="chip-clear" title="Remove" (click)="clearUnit23ActualsFile()">&times;</button>
+                </div>
+
+                <button
+                  class="btn btn-primary btn-block"
+                  [disabled]="!unit23ActualsFile"
+                  (click)="fillActualsUnit23()"
+                >
+                  Fill Sewing Actuals &rarr;
+                </button>
+                <p class="error-msg" *ngIf="unit23ActualsError">{{ unit23ActualsError }}</p>
+              </ng-container>
+
+              <div class="card-loading" *ngIf="unit23ActualsState === 'loading'">
+                <div class="spinner spinner-sm"></div>
+                <p>Filling Sewing Actuals&hellip;</p>
+              </div>
+
+              <div class="card-done-view" *ngIf="unit23ActualsState === 'done'">
+                <div class="success-badge">&check; Sewing Actuals Updated</div>
+                <div class="compact-stats">
+                  <div class="c-stat ok"><span class="c-val">{{ unit23ActualsSummary.cellsFilled ?? 0 }}</span> <span class="c-lbl">Cells Filled</span></div>
+                  <div class="c-stat"><span class="c-val">{{ unit23ActualsSummary.sheetsUpdated ?? 0 }}</span> <span class="c-lbl">Sheets</span></div>
+                </div>
+                <p class="info-note">&check; Order Summary &amp; past actuals preserved 100%.</p>
+
+                <a class="btn btn-sm btn-download card-footer-btn" [href]="unit23ActualsDownloadUrl" download>
+                  Download Final Plan vs Actuals &rarr;
+                </a>
+                <button class="btn btn-xs btn-link" (click)="resetActualsUnit23()">Upload Next Daily File</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </ng-container>
+    </div>
+  </main>
+</div>

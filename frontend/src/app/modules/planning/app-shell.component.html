@@ -1,0 +1,43 @@
+<div class="app-shell" [class.sidebar-collapsed]="sidebarCollapsed" [class.mobile-nav-open]="mobileNavOpen">
+  <header class="topbar">
+    <button class="menu-button" type="button" aria-label="Toggle navigation" (click)="toggleSidebar()">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="brand-mark" aria-hidden="true">SP</div>
+    <div class="brand-copy">
+      <strong>SHAHI PLANNING CONTROL</strong>
+      <span>Central Planning </span>
+    </div>
+    <button class="mobile-menu-button" type="button" aria-label="Open navigation" (click)="mobileNavOpen = !mobileNavOpen">☰</button>
+  </header>
+
+  <div class="shell-body">
+    <div class="sidebar-scrim" (click)="closeMobileNav()"></div>
+    <aside class="sidebar" aria-label="Main navigation">
+      <div class="sidebar-heading"><span>MAIN</span><button type="button" aria-label="Collapse navigation" (click)="toggleSidebar()">‹</button></div>
+      <nav class="side-nav">
+        <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" (click)="closeMobileNav()">
+          <span class="nav-icon">⌁</span><span class="nav-label">Nike Snapshot Comparison </span>
+        </a>
+        <a routerLink="/nike-category-comparison" routerLinkActive="active" (click)="closeMobileNav()">
+          <span class="nav-icon">⌁</span><span class="nav-label">Nike Category Comparison</span>
+        </a>
+        <a routerLink="/nike-order-file" routerLinkActive="active" (click)="closeMobileNav()">
+          <span class="nav-icon">▤</span><span class="nav-label">Nike Order File Generator</span>
+        </a>
+        <a routerLink="/adidas-order-file" routerLinkActive="active" (click)="closeMobileNav()">
+          <span class="nav-icon">▤</span><span class="nav-label">Adidas Order Sheet Generation</span>
+        </a>
+        <a routerLink="/hm-order-file" routerLinkActive="active" (click)="closeMobileNav()">
+          <span class="nav-icon">▥</span><span class="nav-label">H&amp;M Order File Generator</span>
+        </a>
+        <a routerLink="/hm-order-file-non-denim" routerLinkActive="active" (click)="closeMobileNav()">
+          <span class="nav-icon">▥</span><span class="nav-label">H&amp;M Order File Generator (Non-Denim)</span>
+        </a>
+      </nav>
+      <div class="sidebar-footer"><span class="status-dot"></span><span class="nav-label">Planning workspace</span></div>
+    </aside>
+
+    <main class="main-content"><router-outlet></router-outlet></main>
+  </div>
+</div>

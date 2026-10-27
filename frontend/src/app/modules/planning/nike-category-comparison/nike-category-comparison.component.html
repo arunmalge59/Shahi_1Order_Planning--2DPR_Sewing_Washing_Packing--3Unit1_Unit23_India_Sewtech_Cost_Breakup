@@ -1,0 +1,232 @@
+<div class="category-comparison-container">
+  <header class="page-header">
+    <div class="header-titles">
+      <h1>Nike Category Comparison</h1>
+      <p class="subtitle">Compare style categories (BOTTOM, JACKET, TOP) between planning snapshots across EX FACTORY months</p>
+    </div>
+  </header>
+
+  <!-- Upload Section -->
+  <section class="upload-section">
+    <div class="upload-card">
+      <div class="card-badge">01</div>
+      <div class="card-content">
+        <h3>Previous Snapshot</h3>
+        <p class="card-desc">Older baseline workbook (.xlsx)</p>
+        <label class="file-btn">
+          <span>Choose Excel File</span>
+          <input type="file" accept=".xlsx,.xls" (change)="onPreviousFileSelected($event)" />
+        </label>
+        <p class="selected-file-name" [title]="previousFile ? previousFile.name : ''">
+          {{ previousFile ? previousFile.name : 'No file chosen' }}
+        </p>
+
+        <div class="label-date-field" *ngIf="previousFile">
+          <label for="prevLabelInput">Snapshot label date</label>
+          <input
+            id="prevLabelInput"
+            type="text"
+            [(ngModel)]="prevLabel"
+            placeholder="e.g. 13-Aug"
+          />
+        </div>
+      </div>
+    </div>
+
+    <div class="vs-divider">VS</div>
+
+    <div class="upload-card">
+      <div class="card-badge">02</div>
+      <div class="card-content">
+        <h3>Current Snapshot</h3>
+        <p class="card-desc">Newer updated workbook (.xlsx)</p>
+        <label class="file-btn">
+          <span>Choose Excel File</span>
+          <input type="file" accept=".xlsx,.xls" (change)="onCurrentFileSelected($event)" />
+        </label>
+        <p class="selected-file-name" [title]="currentFile ? currentFile.name : ''">
+          {{ currentFile ? currentFile.name : 'No file chosen' }}
+        </p>
+
+        <div class="label-date-field" *ngIf="currentFile">
+          <label for="currLabelInput">Snapshot label date</label>
+          <input
+            id="currLabelInput"
+            type="text"
+            [(ngModel)]="currLabel"
+            placeholder="e.g. 22-Sep"
+          />
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Month Range Selector Section -->
+  <section class="filter-bar" *ngIf="monthOptions.length > 0">
+    <div class="range-group">
+      <div class="filter-control">
+        <label for="fromMonthSelect">From Month</label>
+        <select id="fromMonthSelect" [(ngModel)]="fromMonthKey" (change)="previewResult = null">
+          <option *ngFor="let opt of monthOptions" [value]="opt.key">{{ opt.label }}</option>
+        </select>
+      </div>
+
+      <span class="range-arrow">→</span>
+
+      <div class="filter-control">
+        <label for="toMonthSelect">To Month</label>
+        <select id="toMonthSelect" [(ngModel)]="toMonthKey" (change)="previewResult = null">
+          <option *ngFor="let opt of monthOptions" [value]="opt.key">{{ opt.label }}</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="action-group">
+      <button
+        class="compare-btn"
+        [disabled]="!previousFile || !currentFile || comparing || monthsLoading || isRangeInvalid"
+        (click)="compareSnapshots()"
+      >
+        <span *ngIf="!comparing">COMPARE SNAPSHOTS</span>
+        <span *ngIf="comparing">COMPARING...</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- Loading indicator for months -->
+  <div class="loading-state" *ngIf="monthsLoading">
+    <div class="spinner"></div>
+    <span>Extracting available EX FACTORY months from snapshots...</span>
+  </div>
+
+  <!-- Validation / Error Banners -->
+  <div class="alert-banner error" *ngIf="errorMessage">
+    <span class="alert-icon">⚠</span>
+    <span>{{ errorMessage }}</span>
+  </div>
+
+  <div class="alert-banner warning" *ngIf="isRangeInvalid">
+    <span class="alert-icon">ℹ</span>
+    <span>"From Month" cannot be later than "To Month". Please adjust your selection.</span>
+  </div>
+
+  <div class="alert-banner info" *ngIf="sameFileNotice">
+    <span class="alert-icon">ℹ</span>
+    <span>Notice: The same file was uploaded for both Previous and Current snapshots. All DIFF values will be zero (-).</span>
+  </div>
+
+  <!-- Preview Results Section -->
+  <section class="preview-section" *ngIf="previewResult">
+    <div class="preview-header">
+      <div class="sanity-status" [class.passed]="previewResult.sanityChecks.passed" [class.failed]="!previewResult.sanityChecks.passed">
+        <span class="status-indicator-dot"></span>
+        <span *ngIf="previewResult.sanityChecks.passed">Sanity Checks Passed: Confirmed + Projections = ALL across all cells</span>
+        <span *ngIf="!previewResult.sanityChecks.passed">Sanity Check Warnings (see notes below)</span>
+      </div>
+
+      <button class="download-btn" [disabled]="downloading" (click)="downloadExcel()">
+        <span class="dl-icon">📥</span>
+        <span>{{ downloading ? 'Exporting...' : 'Download Excel' }}</span>
+      </button>
+    </div>
+
+    <!-- Grand Totals Overview Bar -->
+    <div class="grand-totals-bar">
+      <div class="gt-pill">
+        <span class="gt-label">{{ previewResult.prevLabel }} Total Qty:</span>
+        <strong>{{ previewResult.grandTotals.prev.total.toLocaleString('en-IN') }}</strong>
+        <span class="gt-sub">(Conf: {{ previewResult.grandTotals.prev.confirmed.toLocaleString('en-IN') }} | Proj: {{ previewResult.grandTotals.prev.projections.toLocaleString('en-IN') }})</span>
+      </div>
+      <div class="gt-pill">
+        <span class="gt-label">{{ previewResult.currLabel }} Total Qty:</span>
+        <strong>{{ previewResult.grandTotals.curr.total.toLocaleString('en-IN') }}</strong>
+        <span class="gt-sub">(Conf: {{ previewResult.grandTotals.curr.confirmed.toLocaleString('en-IN') }} | Proj: {{ previewResult.grandTotals.curr.projections.toLocaleString('en-IN') }})</span>
+      </div>
+    </div>
+
+    <!-- The 3 Tables -->
+    <div class="tables-wrapper">
+      <div class="comparison-table-block" *ngFor="let table of previewResult.tables">
+        <div class="table-title">{{ table.title }}</div>
+
+        <div class="table-scroll-container">
+          <table class="category-matrix-table">
+            <thead>
+              <!-- Header Row 1: Category (spans 2 rows) and Months (spans 3 cols each) -->
+              <tr class="header-row-1">
+                <th class="th-category" rowspan="2">Category</th>
+                <ng-container *ngFor="let m of previewResult.monthHeaders">
+                  <th class="th-month" colspan="3">{{ m.label }}</th>
+                </ng-container>
+              </tr>
+              <!-- Header Row 2: Sub-headers Prev, Curr, DIFF -->
+              <tr class="header-row-2">
+                <ng-container *ngFor="let m of previewResult.monthHeaders">
+                  <th class="th-sub th-prev">{{ previewResult.prevLabel }}</th>
+                  <th class="th-sub th-curr">{{ previewResult.currLabel }}</th>
+                  <th class="th-sub th-diff">DIFF</th>
+                </ng-container>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Category Rows -->
+              <tr *ngFor="let row of table.rows" class="data-row">
+                <td class="td-category">{{ row.category }}</td>
+                <ng-container *ngFor="let m of previewResult.monthHeaders">
+                  <td class="td-number" [class.td-zero]="row.months[m.key].prev === 0">
+                    {{ formatQty(row.months[m.key].prev) }}
+                  </td>
+                  <td class="td-number" [class.td-zero]="row.months[m.key].curr === 0">
+                    {{ formatQty(row.months[m.key].curr) }}
+                  </td>
+                  <td
+                    class="td-number td-diff-cell"
+                    [class.diff-pos]="row.months[m.key].diff > 0"
+                    [class.diff-neg]="row.months[m.key].diff < 0"
+                    [class.diff-zero]="row.months[m.key].diff === 0"
+                  >
+                    {{ formatDiff(row.months[m.key].diff) }}
+                  </td>
+                </ng-container>
+              </tr>
+
+              <!-- Total Row -->
+              <tr class="total-row">
+                <td class="td-category td-total-label">Total</td>
+                <ng-container *ngFor="let m of previewResult.monthHeaders">
+                  <td class="td-number td-total-num" [class.td-zero]="table.totals.months[m.key].prev === 0">
+                    {{ formatQty(table.totals.months[m.key].prev) }}
+                  </td>
+                  <td class="td-number td-total-num" [class.td-zero]="table.totals.months[m.key].curr === 0">
+                    {{ formatQty(table.totals.months[m.key].curr) }}
+                  </td>
+                  <td
+                    class="td-number td-total-num td-diff-cell"
+                    [class.diff-pos]="table.totals.months[m.key].diff > 0"
+                    [class.diff-neg]="table.totals.months[m.key].diff < 0"
+                    [class.diff-zero]="table.totals.months[m.key].diff === 0"
+                  >
+                    {{ formatDiff(table.totals.months[m.key].diff) }}
+                  </td>
+                </ng-container>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notes & Warnings Block -->
+    <div class="notes-card" *ngIf="previewResult.warnings.length > 0 || !previewResult.sanityChecks.passed">
+      <h4>Notes & Audit Information:</h4>
+      <ul class="notes-list">
+        <li *ngFor="let err of previewResult.sanityChecks.errors" class="error-item">
+          ❌ {{ err }}
+        </li>
+        <li *ngFor="let w of previewResult.warnings" class="warning-item">
+          • {{ w }}
+        </li>
+      </ul>
+    </div>
+  </section>
+</div>

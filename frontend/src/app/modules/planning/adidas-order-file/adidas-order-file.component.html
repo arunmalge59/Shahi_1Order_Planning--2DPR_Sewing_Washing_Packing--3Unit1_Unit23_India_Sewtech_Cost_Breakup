@@ -1,0 +1,129 @@
+<main class="order-container">
+  <section class="order-panel">
+    <div class="panel-heading">
+      <span>01</span>
+      <div>
+        <p class="eyebrow">SOURCE WORKBOOK</p>
+        <h2>Upload Adidas Order Chart Workbook</h2>
+      </div>
+    </div>
+    <label class="file-picker">
+      Choose File
+      <input type="file" accept=".xlsx,.xls,.csv" (change)="onFileSelected($event)" />
+    </label>
+    <p class="file-name">Selected file: {{ file ? file.name : 'No file chosen (e.g. Sep1-OrderChart_Initial.xlsx)' }}</p>
+  </section>
+
+  <section class="order-panel compact-panel">
+    <div class="panel-heading">
+      <span>02</span>
+      <div>
+        <p class="eyebrow">ORDER PERIOD &amp; REVISION</p>
+        <h2>Week Code / Revision</h2>
+      </div>
+    </div>
+    <label for="adidasWeekCode">Week Code</label>
+    <input
+      id="adidasWeekCode"
+      class="week-input"
+      type="text"
+      [(ngModel)]="weekCode"
+      placeholder="e.g. WK-33 Rev1"
+    />
+  </section>
+
+  <section class="action-panel">
+    <button class="primary-button" [disabled]="!file || loading" (click)="createOrderFile()">
+      {{ loading ? 'Creating Adidas Order File...' : 'Create Adidas Order File' }}
+    </button>
+    <button class="download-button" [disabled]="!result" (click)="downloadOrderFile()">
+      Download Adidas Order File
+    </button>
+  </section>
+
+  <p class="error" *ngIf="errorMessage">{{ errorMessage }}</p>
+
+  <ng-container *ngIf="result as generated">
+    <section class="created-banner">
+      <p class="eyebrow">ADIDAS ORDER FILE CREATED</p>
+      <h2>Adidas orders have been generated successfully from sheet: {{ generated.sheetName }}.</h2>
+    </section>
+
+    <section class="summary-grid">
+      <div>
+        <strong>{{ generated.summary.totalRows | number }}</strong>
+        <span>Total Source Rows</span>
+      </div>
+      <div class="valid">
+        <strong>{{ generated.summary.validRows | number }}</strong>
+        <span>Valid Order Rows</span>
+      </div>
+      <div class="generated">
+        <strong>{{ generated.summary.generatedOrders | number }}</strong>
+        <span>Grouped Adidas Orders</span>
+      </div>
+      <div class="contract">
+        <strong>{{ generated.summary.totalContractQty | number }}</strong>
+        <span>Total Contract Qty</span>
+      </div>
+      <div class="order-qty">
+        <strong>{{ generated.summary.totalOrderQty | number }}</strong>
+        <span>Total Order Qty (+3%)</span>
+      </div>
+      <div class="skipped" *ngIf="generated.summary.skippedRows > 0">
+        <strong>{{ generated.summary.skippedRows | number }}</strong>
+        <span>Skipped Rows</span>
+      </div>
+    </section>
+
+    <section class="validation-panel" *ngIf="generated.validationErrors.length">
+      <button class="validation-toggle" type="button" (click)="showValidationErrors = !showValidationErrors">
+        {{ showValidationErrors ? 'Hide Validation Errors' : 'View Validation Errors' }} ({{ generated.validationErrors.length }})
+      </button>
+      <div class="table-wrapper" *ngIf="showValidationErrors">
+        <table>
+          <thead>
+            <tr>
+              <th>Source Row</th>
+              <th>Style</th>
+              <th>Qty</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let validationError of generated.validationErrors">
+              <td>{{ validationError.sourceRowNumber }}</td>
+              <td>{{ validationError.style || '-' }}</td>
+              <td>{{ validationError.qty || '-' }}</td>
+              <td>{{ validationError.reason }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="preview-panel">
+      <div class="preview-heading">
+        <div>
+          <p class="eyebrow">PREVIEW</p>
+          <h2>Generated Adidas Orders</h2>
+        </div>
+        <span>{{ generated.preview.length }} shown</span>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th *ngFor="let column of previewColumns">{{ column }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let row of generated.preview">
+              <td *ngFor="let column of previewColumns">{{ row[column] }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </ng-container>
+</main>

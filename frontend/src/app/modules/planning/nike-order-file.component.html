@@ -1,0 +1,19 @@
+<main class="order-container">
+  <section class="order-panel">
+    <div class="panel-heading"><span>01</span><div><p class="eyebrow">SOURCE WORKBOOK</p><h2>Upload Nike Buy Sheet</h2></div></div>
+    <label class="file-picker">Choose File<input type="file" accept=".xlsx,.xls" (change)="onFileSelected($event)" /></label>
+    <p class="file-name">{{ file ? file.name : 'No file chosen' }}</p>
+  </section>
+
+  <section class="order-panel compact-panel">
+    <div class="panel-heading"><span>02</span><div><p class="eyebrow">ORDER PERIOD</p><h2>Week Code</h2></div></div>
+    <label for="weekCode">Week code</label>
+    <input id="weekCode" class="week-input" type="text" [(ngModel)]="weekCode" maxlength="12" />
+  </section>
+
+  <section class="action-panel">
+    <button class="primary-button" [disabled]="!file || loading" (click)="createOrderFile()">{{ loading ? 'Creating...' : 'Create Order File' }}</button>
+    <button class="download-button" [disabled]="!generatedFile" (click)="downloadOrderFile()">Download Order File</button>
+  </section>
+  <p class="error" *ngIf="errorMessage">{{ errorMessage }}</p>
+</main>

@@ -1,0 +1,63 @@
+<main class="order-container">
+  <section class="order-panel">
+    <div class="panel-heading"><span>01</span><div><p class="eyebrow">INITIAL ORDER CHART</p><h2>Upload Initial Order Chart (Marketing)</h2></div></div>
+    <label class="file-picker">Choose File<input type="file" accept=".xlsx" (change)="onMarketingFileSelected($event)" /></label>
+    <p class="file-name">Selected file: {{ marketingFile ? marketingFile.name : 'No file chosen' }}</p>
+    <div class="cp-template-actions" *ngIf="marketingFile">
+      <button class="download-button" type="button" [disabled]="cpTemplateLoading" (click)="downloadHmCpFile()">{{ cpTemplateLoading ? 'Creating...' : 'Download H&M CP File' }}</button>
+      <p class="success" *ngIf="cpTemplateGenerated">{{ cpTemplateMessage }}</p>
+    </div>
+  </section>
+
+  <section class="order-panel">
+    <div class="panel-heading"><span>02</span><div><p class="eyebrow">H&M CP FILE</p><h2>Upload H&M CP File</h2></div></div>
+    <label class="file-picker">Choose File<input type="file" accept=".xlsx" (change)="onCpFileSelected($event)" /></label>
+    <p class="file-name">Selected file: {{ cpFile ? cpFile.name : 'No file chosen' }}</p>
+  </section>
+
+  <section class="order-panel">
+    <div class="panel-heading"><span>03</span><div><p class="eyebrow">PREVIOUS WEEK'S CP FILE</p><h2>Previous Week's CP File (optional)</h2></div></div>
+    <label class="file-picker">Choose File<input type="file" accept=".xlsx" (change)="onPreviousCpFileSelected($event)" /></label>
+    <p class="file-helper">Used to auto-fill Unit from last week's confirmed data</p>
+    <p class="file-name">Selected file: {{ previousCpFile ? previousCpFile.name : 'No file chosen' }}</p>
+  </section>
+
+  <section class="order-panel compact-panel">
+    <div class="panel-heading"><span>04</span><div><p class="eyebrow">ORDER PERIOD</p><h2>Week Code</h2></div></div>
+    <label for="hmNonDenimWeekCode">Week code</label>
+    <input id="hmNonDenimWeekCode" class="week-input" type="text" [(ngModel)]="weekCode" maxlength="12" />
+  </section>
+
+  <section class="action-panel">
+    <button class="primary-button" [disabled]="!marketingFile || !cpFile || !weekCode.trim() || !weekCodePattern.test(weekCode.trim()) || loading" (click)="createOrderFile()">{{ loading ? 'Creating...' : 'Create Order File' }}</button>
+    <button class="download-button" [disabled]="!result" (click)="downloadOrderFile()">Download Order File</button>
+    <button class="secondary-button" type="button" (click)="navigateToChartVariation()">Compare Chart Variation</button>
+  </section>
+  <p class="error" *ngIf="errorMessage">{{ errorMessage }}</p>
+
+  <ng-container *ngIf="result as generated">
+    <section class="created-banner"><p class="eyebrow">H&M NON-DENIM ORDER FILE CREATED</p><h2>Order file is ready for review.</h2></section>
+    <section class="summary-grid">
+      <div><strong>{{ generated.summary.totalMarketingRows | number }}</strong><span>Marketing Rows</span></div>
+      <div><strong>{{ generated.summary.totalCpRows | number }}</strong><span>CP Rows</span></div>
+      <div class="confirmed"><strong>{{ generated.summary.generatedOrders | number }}</strong><span>Generated Orders</span></div>
+      <div class="skipped"><strong>{{ generated.summary.unmatchedMarketingRows | number }}</strong><span>Unmatched Marketing Rows</span></div>
+      <div class="skipped"><strong>{{ generated.summary.unmatchedCpRows | number }}</strong><span>Unmatched CP Rows</span></div>
+    </section>
+    <section class="validation-panel" *ngIf="generated.validationErrors.length">
+      <button class="validation-toggle" type="button" (click)="showValidationErrors = !showValidationErrors">
+        {{ showValidationErrors ? 'Hide Validation Errors' : 'View Validation Errors' }} ({{ generated.validationErrors.length }})
+      </button>
+      <div class="table-wrapper" *ngIf="showValidationErrors"><table><thead><tr><th>Source Row</th><th>Reason</th><th>Style</th><th>Season</th><th>Item No</th></tr></thead><tbody>
+        <tr *ngFor="let validationError of generated.validationErrors"><td>{{ validationError.sourceRowNumber }}</td><td>{{ validationError.reason }}</td><td>{{ validationError.style || '-' }}</td><td>{{ validationError.season || '-' }}</td><td>{{ validationError.itemNo || '-' }}</td></tr>
+      </tbody></table></div>
+    </section>
+    <section class="preview-panel">
+      <div class="preview-heading"><div><p class="eyebrow">PREVIEW</p><h2>Generated H&M Non-Denim Orders</h2></div><span>{{ generated.preview.length }} shown</span></div>
+      <div class="table-wrapper"><table><thead><tr><th *ngFor="let column of previewColumns">{{ column }}</th></tr></thead><tbody>
+        <tr *ngFor="let row of generated.preview"><td *ngFor="let column of previewColumns">{{ row[column] }}</td></tr>
+      </tbody></table></div>
+    </section>
+  </ng-container>
+</main>
+
