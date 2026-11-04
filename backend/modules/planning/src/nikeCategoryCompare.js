@@ -127,6 +127,15 @@ function getCellCalculatedValue(cell) {
   return cell.value;
 }
 
+function isValidCalendarDate(dateParts) {
+  const date = new Date(0);
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCFullYear(dateParts.year, dateParts.month, dateParts.day);
+  return date.getUTCFullYear() === dateParts.year &&
+    date.getUTCMonth() === dateParts.month &&
+    date.getUTCDate() === dateParts.day;
+}
+
 /**
  * Parse a Nike Snapshot file buffer into structured rows
  */
@@ -156,7 +165,6 @@ async function parseNikeSnapshot(fileBuffer, fileName = 'Snapshot') {
   let headerRowIdx = -1;
   let colIndices = {
     category: -1,
-    exFactory: -1,
     qty: -1,
     status: -1,
     gac: -1,
@@ -170,7 +178,7 @@ async function parseNikeSnapshot(fileBuffer, fileName = 'Snapshot') {
 
   for (let r = 1; r <= Math.min(10, totalRowCount); r++) {
     const row = worksheet.getRow(r);
-    let catIdx = -1, exIdx = -1, qtyIdx = -1, stIdx = -1, gacIdx = -1, styIdx = -1;
+    let catIdx = -1, qtyIdx = -1, stIdx = -1, gacIdx = -1, styIdx = -1;
 
     row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
       const rawHeader = String(cell.value || '').trim();
@@ -178,8 +186,6 @@ async function parseNikeSnapshot(fileBuffer, fileName = 'Snapshot') {
 
       if (['category', 'categ'].includes(norm)) {
         if (catIdx === -1) catIdx = colNumber;
-      } else if (['ex factory', 'ex-factory', 'exfactory', 'ex factory date', 'ex factory '].includes(norm)) {
-        if (exIdx === -1) exIdx = colNumber;
       } else if (['qty', 'quantity', 'qty '].includes(norm)) {
         if (qtyIdx === -1) {
           qtyIdx = colNumber;
@@ -195,11 +201,10 @@ async function parseNikeSnapshot(fileBuffer, fileName = 'Snapshot') {
       }
     });
 
-    if (catIdx !== -1 && exIdx !== -1 && qtyIdx !== -1) {
+    if (catIdx !== -1 && gacIdx !== -1 && qtyIdx !== -1) {
       headerRowIdx = r;
       colIndices = {
         category: catIdx,
-        exFactory: exIdx,
         qty: qtyIdx,
         status: stIdx,
         gac: gacIdx,
@@ -212,11 +217,10 @@ async function parseNikeSnapshot(fileBuffer, fileName = 'Snapshot') {
   if (headerRowIdx === -1) {
     const missing = [];
     if (colIndices.category === -1) missing.push('Category');
-    if (colIndices.exFactory === -1) missing.push('EX FACTORY');
+    if (colIndices.gac === -1) missing.push('GAC');
     if (colIndices.qty === -1) missing.push('Qty');
-    if (colIndices.status === -1) missing.push('Status');
     throw new Error(
-      `Could not locate required headers in "${fileName}". Missing or unrecognized columns: ${missing.join(', ')}.`
+      `Could not locate required headers in "${fileName}". Required columns are Category, GAC, and Qty. Missing or unrecognized columns: ${missing.join(', ')}.`
     );
   }
 
@@ -227,6 +231,8 @@ async function parseNikeSnapshot(fileBuffer, fileName = 'Snapshot') {
   const validRows = [];
   let unassignedCount = 0;
   let unassignedQty = 0;
+  let missingGacDateCount = 0;
+  let invalidGacDateCount = 0;
   let nonNumericQtyCount = 0;
   let negativeQtyCount = 0;
   let rawTotalQty = 0;
@@ -236,10 +242,9 @@ async function parseNikeSnapshot(fileBuffer, fileName = 'Snapshot') {
   for (let r = headerRowIdx + 1; r <= totalRowCount; r++) {
     const row = worksheet.getRow(r);
     
-    // Read category, exFactory, qty, status
+    // Read category, GAC, qty, status
     const rawCategory = row.getCell(colIndices.category).value;
-    const rawExFactoryCell = row.getCell(colIndices.exFactory);
-    const rawGacCell = colIndices.gac !== -1 ? row.getCell(colIndices.gac) : null;
+    const rawGacCell = row.getCell(colIndices.gac);
     const rawQty = row.getCell(colIndices.qty).value;
     const rawStatus = colIndices.status !== -1 ? row.getCell(colIndices.status).value : '';
     const rawStyle = colIndices.style !== -1 ? row.getCell(colIndices.style).value : '';
@@ -249,7 +254,7 @@ async function parseNikeSnapshot(fileBuffer, fileName = 'Snapshot') {
     const statusStr = String(rawStatus || '').trim().toLowerCase();
 
     // Check if completely empty row
-    if (!rawCategory && !rawExFactoryCell.value && !rawQty && !rawStatus && !rawStyle) {
+    if (!rawCategory && !rawGacCell.value && !rawQty && !rawStatus && !rawStyle) {
       continue;
     }
 
@@ -286,28 +291,15 @@ async function parseNikeSnapshot(fileBuffer, fileName = 'Snapshot') {
 
     rawTotalQty += qty;
 
-    // Parse Date: try EX FACTORY calculated value first
-    let exValue = getCellCalculatedValue(rawExFactoryCell);
-    let parsedDate = parseDateUtc(exValue);
-
-    // Fallback if formula had no cached result and GAC is available
-    if (!parsedDate && rawGacCell) {
-      const gacVal = getCellCalculatedValue(rawGacCell);
-      const parsedGac = parseDateUtc(gacVal);
-      if (parsedGac) {
-        // GAC minus 4 days
-        const gacDate = new Date(Date.UTC(parsedGac.year, parsedGac.month, parsedGac.day));
-        gacDate.setUTCDate(gacDate.getUTCDate() - 4);
-        parsedDate = {
-          year: gacDate.getUTCFullYear(),
-          month: gacDate.getUTCMonth(),
-          day: gacDate.getUTCDate(),
-        };
-        warnings.push(`Row ${r}: EX FACTORY formula had no cached result; fell back to GAC - 4 days.`);
-      }
-    }
-
+    const gacValue = getCellCalculatedValue(rawGacCell);
+    const parsedGacDate = parseDateUtc(gacValue);
+    const parsedDate = parsedGacDate && isValidCalendarDate(parsedGacDate) ? parsedGacDate : null;
     if (!parsedDate) {
+      if (gacValue === null || gacValue === undefined || gacValue === '') {
+        missingGacDateCount++;
+      } else {
+        invalidGacDateCount++;
+      }
       if (qty !== 0) {
         unassignedCount++;
         unassignedQty += qty;
@@ -347,7 +339,13 @@ async function parseNikeSnapshot(fileBuffer, fileName = 'Snapshot') {
   }
 
   if (unassignedCount > 0) {
-    warnings.push(`${unassignedCount} rows (${unassignedQty.toLocaleString('en-IN')} qty) in "${fileName}" have no valid EX FACTORY date.`);
+    warnings.push(`${unassignedCount} rows (${unassignedQty.toLocaleString('en-IN')} qty) in "${fileName}" have no valid GAC date and are excluded from month totals.`);
+  }
+  if (missingGacDateCount > 0) {
+    warnings.push(`${missingGacDateCount} data rows in "${fileName}" have a missing GAC date.`);
+  }
+  if (invalidGacDateCount > 0) {
+    warnings.push(`${invalidGacDateCount} data rows in "${fileName}" have an invalid GAC date.`);
   }
   if (nonNumericQtyCount > 0) {
     warnings.push(`${nonNumericQtyCount} rows in "${fileName}" had non-numeric Qty values (treated as 0).`);
@@ -372,18 +370,13 @@ async function parseNikeSnapshot(fileBuffer, fileName = 'Snapshot') {
 }
 
 /**
- * Format month label according to the reference and rules:
- * Months in the same year as the reference year show plain (Oct, Nov); other years show suffix (Jan'27).
+ * Format each month with its year so year transitions remain unambiguous.
  */
-function getMonthDisplayLabel(monthKey, referenceYear) {
+function getMonthDisplayLabel(monthKey) {
   const [yearStr, monthStr] = monthKey.split('-');
   const y = parseInt(yearStr, 10);
   const m = parseInt(monthStr, 10) - 1; // 0-11
   const mName = MONTH_NAMES[m] || 'M' + monthStr;
-
-  if (referenceYear && y === referenceYear) {
-    return mName;
-  }
   const shortYear = String(y).slice(-2);
   return `${mName}'${shortYear}`;
 }
@@ -500,10 +493,9 @@ function buildComparison(prevData, currData, fromMonthKey, toMonthKey, prevLabel
     }
   }
 
-  const referenceYear = fromY;
   const monthHeaders = activeMonths.map((m) => ({
     key: m.key,
-    label: getMonthDisplayLabel(m.key, referenceYear),
+    label: getMonthDisplayLabel(m.key),
   }));
 
   // Determine Categories
@@ -592,8 +584,8 @@ function buildComparison(prevData, currData, fromMonthKey, toMonthKey, prevLabel
   const projectionsTable = aggregateTable('projections');
 
   // Title strings
-  const fromLabel = getMonthDisplayLabel(fromMonthKey, referenceYear);
-  const toLabel = getMonthDisplayLabel(toMonthKey, referenceYear);
+  const fromLabel = getMonthDisplayLabel(fromMonthKey);
+  const toLabel = getMonthDisplayLabel(toMonthKey);
   const rangeTitleSuffix = `${fromLabel} to ${toLabel}`;
 
   const tables = [
@@ -617,7 +609,7 @@ function buildComparison(prevData, currData, fromMonthKey, toMonthKey, prevLabel
   // Perform Sanity Checks
   const sanityErrors = [];
 
-  // Check 1: Confirmed + Projections + Other === All for every cell
+  // Check 1: Confirmed + Projections === All for every category/month/snapshot.
   for (let cIdx = 0; cIdx < categories.length; cIdx++) {
     const cat = categories[cIdx];
     for (const m of activeMonths) {
@@ -629,20 +621,10 @@ function buildComparison(prevData, currData, fromMonthKey, toMonthKey, prevLabel
       const confC = confirmedTable.rows[cIdx].months[m.key].curr;
       const projC = projectionsTable.rows[cIdx].months[m.key].curr;
 
-      // Find any "other" status sum
-      let otherP = 0;
-      for (const r of prevData.rows) {
-        if (r.monthKey === m.key && r.category === cat && r.status === 'other') otherP += r.qty;
-      }
-      let otherC = 0;
-      for (const r of currData.rows) {
-        if (r.monthKey === m.key && r.category === cat && r.status === 'other') otherC += r.qty;
-      }
-
-      if (Math.round(confP + projP + otherP) !== Math.round(allP)) {
+      if (Math.abs(confP + projP - allP) > 0.01) {
         sanityErrors.push(`Discrepancy in Previous [${cat} - ${m.key}]: Confirmed (${confP}) + Proj (${projP}) != All (${allP}).`);
       }
-      if (Math.round(confC + projC + otherC) !== Math.round(allC)) {
+      if (Math.abs(confC + projC - allC) > 0.01) {
         sanityErrors.push(`Discrepancy in Current [${cat} - ${m.key}]: Confirmed (${confC}) + Proj (${projC}) != All (${allC}).`);
       }
     }
@@ -710,14 +692,15 @@ async function generateCategoryComparisonExcel(comparisonResult) {
   const { monthHeaders, categories, tables, prevLabel, currLabel, warnings } = comparisonResult;
 
   const workbook = new ExcelJS.Workbook();
+  workbook.calcProperties = { fullCalcOnLoad: true, forceFullCalc: true };
   const ws = workbook.addWorksheet('Category Comparison', {
     views: [{ showGridLines: true }],
   });
 
   // Setup Column Widths
-  // Col A = 14, each month has 3 columns = 12 each
+  // Col A = 14, each month and the final total columns have width 12.
   const cols = [{ width: 14 }];
-  for (let i = 0; i < monthHeaders.length * 3; i++) {
+  for (let i = 0; i < monthHeaders.length * 3 + 3; i++) {
     cols.push({ width: 12 });
   }
   ws.columns = cols;
@@ -749,7 +732,10 @@ async function generateCategoryComparisonExcel(comparisonResult) {
   const indianNumFmt = '[>=10000000]##\\,##\\,##\\,##0;[>=100000]##\\,##\\,##0;##,##0';
 
   let currentRow = 1;
-  const totalTableCols = 1 + monthHeaders.length * 3;
+  const totalStartCol = 2 + monthHeaders.length * 3;
+  const totalPrevLetter = ws.getColumn(totalStartCol).letter;
+  const totalCurrLetter = ws.getColumn(totalStartCol + 1).letter;
+  const totalTableCols = totalStartCol + 2;
 
   for (let tIdx = 0; tIdx < tables.length; tIdx++) {
     const table = tables[tIdx];
@@ -813,6 +799,29 @@ async function generateCategoryComparisonExcel(comparisonResult) {
       diffSubCell.fill = salmonFill;
       diffSubCell.alignment = { horizontal: 'center', vertical: 'middle' };
       diffSubCell.border = thinBorder;
+    }
+
+    ws.mergeCells(headerRow1Num, totalStartCol, headerRow1Num, totalStartCol + 2);
+    const totalHeaderCell = ws.getCell(headerRow1Num, totalStartCol);
+    totalHeaderCell.value = 'TOTAL';
+    totalHeaderCell.font = boldFont;
+    totalHeaderCell.fill = yellowFill;
+    totalHeaderCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    for (let c = totalStartCol; c <= totalStartCol + 2; c++) {
+      ws.getCell(headerRow1Num, c).border = thinBorder;
+    }
+
+    for (const [offset, label, fill] of [
+      [0, prevLabel, yellowFill],
+      [1, currLabel, yellowFill],
+      [2, 'DIFF', salmonFill],
+    ]) {
+      const cell = ws.getCell(headerRow2Num, totalStartCol + offset);
+      cell.value = label;
+      cell.font = boldFont;
+      cell.fill = fill;
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = thinBorder;
     }
 
     currentRow = headerRow2Num + 1;
@@ -888,6 +897,46 @@ async function generateCategoryComparisonExcel(comparisonResult) {
           dCell.numFmt = indianNumFmt;
           dCell.alignment = { horizontal: 'right', vertical: 'middle' };
         }
+      }
+
+      const totalPrevCell = ws.getCell(rNum, totalStartCol);
+      const totalCurrCell = ws.getCell(rNum, totalStartCol + 1);
+      const totalDiffCell = ws.getCell(rNum, totalStartCol + 2);
+      const prevMonthCells = monthHeaders.map((_, mIdx) => ws.getColumn(2 + mIdx * 3).letter + rNum);
+      const currMonthCells = monthHeaders.map((_, mIdx) => ws.getColumn(3 + mIdx * 3).letter + rNum);
+      const prevTotal = monthHeaders.reduce((sum, month) => sum + (rowData.months[month.key]?.prev || 0), 0);
+      const currTotal = monthHeaders.reduce((sum, month) => sum + (rowData.months[month.key]?.curr || 0), 0);
+
+      totalPrevCell.value = { formula: `SUM(${prevMonthCells.join(',')})`, result: prevTotal };
+      totalCurrCell.value = { formula: `SUM(${currMonthCells.join(',')})`, result: currTotal };
+      totalDiffCell.value = {
+        formula: `${totalCurrLetter}${rNum}-${totalPrevLetter}${rNum}`,
+        result: currTotal - prevTotal,
+      };
+
+      for (const cell of [totalPrevCell, totalCurrCell, totalDiffCell]) {
+        cell.font = standardFont;
+        cell.border = thinBorder;
+        cell.numFmt = indianNumFmt;
+        cell.alignment = { horizontal: 'right', vertical: 'middle' };
+      }
+      if (prevTotal === 0) {
+        totalPrevCell.numFmt = '"-"';
+        totalPrevCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      }
+      if (currTotal === 0) {
+        totalCurrCell.numFmt = '"-"';
+        totalCurrCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      }
+      if (currTotal - prevTotal === 0) {
+        totalDiffCell.numFmt = '"-"';
+        totalDiffCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      } else if (currTotal > prevTotal) {
+        totalDiffCell.fill = greenFill;
+        totalDiffCell.font = greenFont;
+      } else {
+        totalDiffCell.fill = redFill;
+        totalDiffCell.font = redFont;
       }
 
       currentRow++;
@@ -968,6 +1017,56 @@ async function generateCategoryComparisonExcel(comparisonResult) {
         dTotCell.numFmt = indianNumFmt;
         dTotCell.alignment = { horizontal: 'right', vertical: 'middle' };
       }
+    }
+
+    const totalPrevCell = ws.getCell(totalRowNum, totalStartCol);
+    const totalCurrCell = ws.getCell(totalRowNum, totalStartCol + 1);
+    const totalDiffCell = ws.getCell(totalRowNum, totalStartCol + 2);
+    const prevGrandTotal = monthHeaders.reduce(
+      (sum, month) => sum + (table.totals.months[month.key]?.prev || 0),
+      0
+    );
+    const currGrandTotal = monthHeaders.reduce(
+      (sum, month) => sum + (table.totals.months[month.key]?.curr || 0),
+      0
+    );
+
+    totalPrevCell.value = {
+      formula: `SUM(${totalPrevLetter}${firstDataRowNum}:${totalPrevLetter}${lastDataRowNum})`,
+      result: prevGrandTotal,
+    };
+    totalCurrCell.value = {
+      formula: `SUM(${totalCurrLetter}${firstDataRowNum}:${totalCurrLetter}${lastDataRowNum})`,
+      result: currGrandTotal,
+    };
+    totalDiffCell.value = {
+      formula: `${totalCurrLetter}${totalRowNum}-${totalPrevLetter}${totalRowNum}`,
+      result: totalCurrCell.value.result - totalPrevCell.value.result,
+    };
+
+    for (const cell of [totalPrevCell, totalCurrCell, totalDiffCell]) {
+      cell.font = boldFont;
+      cell.border = thinBorder;
+      cell.numFmt = indianNumFmt;
+      cell.alignment = { horizontal: 'right', vertical: 'middle' };
+    }
+    if (totalPrevCell.value.result === 0) {
+      totalPrevCell.numFmt = '"-"';
+      totalPrevCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    }
+    if (totalCurrCell.value.result === 0) {
+      totalCurrCell.numFmt = '"-"';
+      totalCurrCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    }
+    if (totalDiffCell.value.result === 0) {
+      totalDiffCell.numFmt = '"-"';
+      totalDiffCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    } else if (totalDiffCell.value.result > 0) {
+      totalDiffCell.fill = greenFill;
+      totalDiffCell.font = boldGreenFont;
+    } else {
+      totalDiffCell.fill = redFill;
+      totalDiffCell.font = boldRedFont;
     }
 
     currentRow = totalRowNum + 3; // 2 blank rows between tables
