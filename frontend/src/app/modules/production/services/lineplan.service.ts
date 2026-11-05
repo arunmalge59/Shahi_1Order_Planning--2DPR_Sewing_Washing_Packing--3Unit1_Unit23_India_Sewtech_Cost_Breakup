@@ -22,6 +22,20 @@ export interface ProcessResponse {
 export interface FillActualsSummary {
   sheetsUpdated?: number;
   cellsFilled?: number;
+  washingFilesProcessed?: number;
+  packingFilesProcessed?: number;
+  washingCellsWritten?: number;
+  packingCellsWritten?: number;
+  styleSheetsUpdated?: number;
+  summaryReportProcessed?: number;
+  summaryRowsUpdated?: number;
+  summaryCompletionCellsWritten?: number;
+  summaryStyleSheetsUpdated?: string[];
+  summaryUnmatchedGroups?: any[];
+  summaryAmbiguousGroups?: any[];
+  unmatchedItems?: any[];
+  ambiguousItems?: any[];
+  missingDestinationDates?: any[];
   combinedSplitStyles?: string[];
   unmatchedStyles?: string[];
 }
@@ -33,8 +47,10 @@ export interface FillActualsResponse {
 }
 
 export interface DprReportUpload {
+  id: string;
   file: File;
   reportDate: string;
+  process: 'washing' | 'packing';
 }
 
 export interface OrderSummarySummary {
@@ -145,16 +161,28 @@ export class LinePlanService {
   fillActualsDirectUnit23(
     workbook: File,
     sewingReport?: File | null,
-    dprReports: DprReportUpload[] = []
+    washingReports: DprReportUpload[] = [],
+    packingReports: DprReportUpload[] = [],
+    summaryReport?: File | null
   ): Observable<FillActualsResponse> {
     const formData = new FormData();
     formData.append('workbook', workbook);
     if (sewingReport) {
       formData.append('sewingReport', sewingReport);
     }
-    dprReports.forEach((report, index) => {
-      formData.append(`dprReport_${index}`, report.file);
-      formData.append(`dprDate_${index}`, report.reportDate);
+    if (summaryReport) {
+      formData.append('summaryReport', summaryReport);
+    }
+    [...washingReports, ...packingReports].forEach((report, index) => {
+      formData.append(`report_${index}`, report.file);
+      formData.append(`reportId_${index}`, report.id);
+      formData.append(`reportProcess_${index}`, report.process);
+      formData.append(`reportDate_${index}`, report.reportDate);
+    });
+    console.log('[Unit23] submitting DPR reports:', {
+      washing: washingReports.length,
+      packing: packingReports.length,
+      metadata: washingReports.length + packingReports.length
     });
     return this.http.post<FillActualsResponse>(`${this.baseUrl}/unit23/fill-actuals-direct`, formData);
   }

@@ -23,6 +23,7 @@ type CalendarCell = {
   isAvailable: boolean;
 };
 type Unit23DprReportEntry = {
+  id: string;
   file: File | null;
   reportDate: string;
 };
@@ -32,7 +33,8 @@ type DirectUploadTarget =
   | 'unit1-wash-pack'
   | 'unit23-workbook'
   | 'unit23-sewing'
-  | 'unit23-dpr';
+  | 'unit23-washing'
+  | 'unit23-packing';
 
 @Component({
   selector: 'app-production-workspace',
@@ -130,7 +132,9 @@ export class AppComponent implements OnInit, OnDestroy {
   // Unit 23 Unified Daily Actuals Upload
   unit23DirectWorkbookFile: File | null = null;
   unit23DirectSewingReportFile: File | null = null;
-  unit23DirectDprReports: Unit23DprReportEntry[] = [this.createUnit23DprReportEntry()];
+  unit23DirectSummaryReportFile: File | null = null;
+  unit23DirectWashingReports: Unit23DprReportEntry[] = [this.createUnit23DprReportEntry()];
+  unit23DirectPackingReports: Unit23DprReportEntry[] = [this.createUnit23DprReportEntry()];
   unit23DirectActualsState: ActualsState = 'idle';
   unit23DirectActualsError: string | null = null;
   unit23DirectActualsSummary: FillActualsSummary = {};
@@ -440,43 +444,73 @@ export class AppComponent implements OnInit, OnDestroy {
     if (file) this.unit23DirectSewingReportFile = file;
   }
 
-  onUnit23DirectDprReportFileInputChange(event: Event, index: number): void {
+  onUnit23DirectSummaryReportFileInputChange(event: Event): void {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
-    if (file) this.unit23DirectDprReports[index].file = file;
+    if (file) this.unit23DirectSummaryReportFile = file;
   }
 
-  addUnit23DprReport(): void {
-    this.unit23DirectDprReports.push(this.createUnit23DprReportEntry());
+  onUnit23DirectWashingReportFileInputChange(event: Event, index: number): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (file) this.unit23DirectWashingReports[index].file = file;
   }
 
-  removeUnit23DprReport(index: number): void {
-    this.unit23DirectDprReports.splice(index, 1);
+  onUnit23DirectPackingReportFileInputChange(event: Event, index: number): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (file) this.unit23DirectPackingReports[index].file = file;
   }
 
-  clearUnit23DprReportFile(index: number): void {
-    this.unit23DirectDprReports[index].file = null;
+  addUnit23WashingReport(): void {
+    this.unit23DirectWashingReports.push(this.createUnit23DprReportEntry());
+  }
+
+  addUnit23PackingReport(): void {
+    this.unit23DirectPackingReports.push(this.createUnit23DprReportEntry());
+  }
+
+  removeUnit23WashingReport(index: number): void {
+    this.unit23DirectWashingReports.splice(index, 1);
+  }
+
+  removeUnit23PackingReport(index: number): void {
+    this.unit23DirectPackingReports.splice(index, 1);
   }
 
   fillActualsDirectUnit23(): void {
     if (!this.unit23DirectWorkbookFile) return;
     this.unit23DirectActualsError = null;
-    const selectedDprReports = this.unit23DirectDprReports.filter(
+    const selectedWashingReports = this.unit23DirectWashingReports.filter(
       (report): report is Unit23DprReportEntry & { file: File } => report.file !== null
     );
-    if (selectedDprReports.some((report) => !report.reportDate)) {
-      this.unit23DirectActualsError = 'Select a report date for every Wash & Pack DPR file.';
+    const selectedPackingReports = this.unit23DirectPackingReports.filter(
+      (report): report is Unit23DprReportEntry & { file: File } => report.file !== null
+    );
+    if (this.unit23DirectWashingReports.some((report) => !report.file && report.reportDate) ||
+        this.unit23DirectPackingReports.some((report) => !report.file && report.reportDate)) {
+      this.unit23DirectActualsError = 'Select a file for every entered report date.';
       return;
     }
-    const selectedDates = selectedDprReports.map((report) => report.reportDate);
-    if (new Set(selectedDates).size !== selectedDates.length) {
-      this.unit23DirectActualsError = 'Each Wash & Pack DPR must have a different report date.';
+    if ([...selectedWashingReports, ...selectedPackingReports].some((report) => !report.reportDate)) {
+      this.unit23DirectActualsError = 'Select a report date for every selected Washing and Packing report.';
       return;
     }
-
-    const dprReports: DprReportUpload[] = selectedDprReports.map((report) => ({
-      file: report.file,
-      reportDate: report.reportDate,
+    const washingDates = selectedWashingReports.map((report) => report.reportDate);
+    const packingDates = selectedPackingReports.map((report) => report.reportDate);
+    if (new Set(washingDates).size !== washingDates.length) {
+      this.unit23DirectActualsError = 'Each Washing report must have a different report date.';
+      return;
+    }
+    if (new Set(packingDates).size !== packingDates.length) {
+      this.unit23DirectActualsError = 'Each Packing report must have a different report date.';
+      return;
+    }
+    const washingReports: DprReportUpload[] = selectedWashingReports.map((report) => ({
+      id: report.id, file: report.file, reportDate: report.reportDate, process: 'washing'
+    }));
+    const packingReports: DprReportUpload[] = selectedPackingReports.map((report) => ({
+      id: report.id, file: report.file, reportDate: report.reportDate, process: 'packing'
     }));
     this.unit23DirectActualsState = 'loading';
 
@@ -484,7 +518,9 @@ export class AppComponent implements OnInit, OnDestroy {
       .fillActualsDirectUnit23(
         this.unit23DirectWorkbookFile,
         this.unit23DirectSewingReportFile,
-        dprReports
+        washingReports,
+        packingReports,
+        this.unit23DirectSummaryReportFile
       )
       .subscribe({
         next: (res) => {
@@ -495,7 +531,7 @@ export class AppComponent implements OnInit, OnDestroy {
           }
           this.unit23DirectActualsSummary = res.summary || {};
           this.unit23DirectActualsDownloadUrl = this.linePlanService.getDownloadUrl(res.downloadUrl);
-          this.unit23DprFilesProcessed = dprReports.length;
+          this.unit23DprFilesProcessed = washingReports.length + packingReports.length;
           this.unit23DirectActualsState = 'done';
         },
         error: (err: HttpErrorResponse) => {
@@ -508,13 +544,15 @@ export class AppComponent implements OnInit, OnDestroy {
   resetDirectActualsUnit23(): void {
     this.unit23DirectActualsState = 'idle';
     this.unit23DirectSewingReportFile = null;
-    this.unit23DirectDprReports = [this.createUnit23DprReportEntry()];
+    this.unit23DirectSummaryReportFile = null;
+    this.unit23DirectWashingReports = [this.createUnit23DprReportEntry()];
+    this.unit23DirectPackingReports = [this.createUnit23DprReportEntry()];
     this.unit23DirectActualsError = null;
     this.unit23DprFilesProcessed = 0;
   }
 
   private createUnit23DprReportEntry(): Unit23DprReportEntry {
-    return { file: null, reportDate: new Date().toISOString().split('T')[0] };
+    return { id: `u23-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`, file: null, reportDate: '' };
   }
 
 
@@ -586,9 +624,14 @@ export class AppComponent implements OnInit, OnDestroy {
       case 'unit23-sewing':
         this.unit23DirectSewingReportFile = file;
         break;
-      case 'unit23-dpr':
-        if (dprIndex !== undefined && this.unit23DirectDprReports[dprIndex]) {
-          this.unit23DirectDprReports[dprIndex].file = file;
+      case 'unit23-washing':
+        if (dprIndex !== undefined && this.unit23DirectWashingReports[dprIndex]) {
+          this.unit23DirectWashingReports[dprIndex].file = file;
+        }
+        break;
+      case 'unit23-packing':
+        if (dprIndex !== undefined && this.unit23DirectPackingReports[dprIndex]) {
+          this.unit23DirectPackingReports[dprIndex].file = file;
         }
         break;
     }

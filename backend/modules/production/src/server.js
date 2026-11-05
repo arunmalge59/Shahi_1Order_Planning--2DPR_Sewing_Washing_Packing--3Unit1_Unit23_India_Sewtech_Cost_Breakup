@@ -269,6 +269,7 @@ app.post('/api/fill-actuals-direct', (req, res) => {
     const files = Array.isArray(req.files) ? req.files : [];
     const wbFile = files.find((f) => f.fieldname === 'workbook') || files[0];
     const sewingFile = files.find((f) => f.fieldname === 'sewingReport' || f.fieldname === 'report');
+    const summaryFile = files.find((f) => f.fieldname === 'summaryReport');
     const wpFile = files.find((f) => f.fieldname === 'washPackReport');
 
     if (!wbFile) {
@@ -281,7 +282,6 @@ app.post('/api/fill-actuals-direct', (req, res) => {
 
     const sewingExt = sewingFile ? sewingFile.path + path.extname(sewingFile.originalname) : null;
     if (sewingFile && sewingExt) fs.renameSync(sewingFile.path, sewingExt);
-
     const wpExt = wpFile ? wpFile.path + path.extname(wpFile.originalname) : null;
     if (wpFile && wpExt) fs.renameSync(wpFile.path, wpExt);
 
@@ -338,6 +338,10 @@ app.post('/api/fill-actuals-direct', (req, res) => {
         fs.copyFileSync(wbExt, outputPath);
       }
 
+      combinedSummary.styleSheetsUpdated = combinedSummary.styleSheetsSet
+        ? combinedSummary.styleSheetsSet.size
+        : 0;
+      delete combinedSummary.styleSheetsSet;
       cleanup();
 
       return res.json({
@@ -556,16 +560,40 @@ app.post('/api/unit23/fill-actuals-direct', (req, res) => {
     const files = Array.isArray(req.files) ? req.files : [];
     const wbFile = files.find((f) => f.fieldname === 'workbook') || files[0];
     const sewingFile = files.find((f) => f.fieldname === 'sewingReport' || f.fieldname === 'report');
-    const indexedDprReports = files
-      .filter((f) => /^dprReport_\d+$/.test(f.fieldname))
+    const summaryFile = files.find((f) => f.fieldname === 'summaryReport');
+    const itemDprReports = files
+      .filter((file) => /^report_\d+$/.test(file.fieldname))
       .map((file) => {
-        const index = file.fieldname.slice('dprReport_'.length);
-        return { file, reportDate: req.body?.[`dprDate_${index}`] || '' };
+        const index = file.fieldname.slice('report_'.length);
+        return {
+          file,
+          id: req.body?.[`reportId_${index}`] || '',
+          process: req.body?.[`reportProcess_${index}`] || '',
+          reportDate: req.body?.[`reportDate_${index}`] || ''
+        };
       });
-    const legacyDprFile = files.find((f) => f.fieldname === 'washPackReport' || f.fieldname === 'dprReport');
-    const dprReports = indexedDprReports;
-    if (legacyDprFile) {
-      dprReports.push({ file: legacyDprFile, reportDate: req.body?.reportDate || '' });
+    const metadataReportIds = Object.keys(req.body || {})
+      .filter((key) => /^reportId_\d+$/.test(key))
+      .map((key) => key.slice('reportId_'.length));
+    const incompleteReportIds = metadataReportIds.filter((index) => !files.some((file) => file.fieldname === `report_${index}`));
+
+    console.log('[Unit23] multipart reports:', {
+      files: files.filter((file) => /^report_\d+$/.test(file.fieldname)).length,
+      metadataIds: metadataReportIds.length,
+      associations: itemDprReports.map(({ id, process, reportDate }) => ({ id, process, reportDate }))
+    });
+
+    if (metadataReportIds.length > 0 && incompleteReportIds.length > 0) {
+      files.forEach((file) => fs.unlink(file.path, () => {}));
+      return res.status(400).json({
+        error: `Report file is missing for upload metadata: ${incompleteReportIds.join(', ')}.`
+      });
+    }
+    if (metadataReportIds.length !== itemDprReports.length) {
+      files.forEach((file) => fs.unlink(file.path, () => {}));
+      return res.status(400).json({
+        error: 'One or more Washing/Packing files are missing their upload metadata.'
+      });
     }
 
     if (!wbFile) {
@@ -573,12 +601,13 @@ app.post('/api/unit23/fill-actuals-direct', (req, res) => {
       return res.status(400).json({ error: 'Please upload existing workbook.' });
     }
 
-    const reportDates = dprReports.map((report) => report.reportDate).filter(Boolean);
-    const invalidDprReport = dprReports.find(({ file, reportDate }) => {
-      if (!reportDate) return indexedDprReports.some((report) => report.file === file);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) return true;
-      const parsedDate = new Date(`${reportDate}T00:00:00.000Z`);
-      return Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== reportDate;
+    const invalidDprReport = itemDprReports.find(({ id, process, reportDate }) => {
+      if (!id || !['washing', 'packing'].includes(process) || !/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) return true;
+      const [year, month, day] = reportDate.split('-').map(Number);
+      const parsedDate = new Date(Date.UTC(year, month - 1, day));
+      return parsedDate.getUTCFullYear() !== year ||
+        parsedDate.getUTCMonth() !== month - 1 ||
+        parsedDate.getUTCDate() !== day;
     });
     if (invalidDprReport) {
       files.forEach((f) => fs.unlink(f.path, () => {}));
@@ -586,9 +615,17 @@ app.post('/api/unit23/fill-actuals-direct', (req, res) => {
         error: `Select a valid report date for DPR file "${invalidDprReport.file.originalname}".`,
       });
     }
-    if (new Set(reportDates).size !== reportDates.length) {
+    const ids = itemDprReports.map(({ id }) => id);
+    if (new Set(ids).size !== ids.length) {
       files.forEach((f) => fs.unlink(f.path, () => {}));
-      return res.status(400).json({ error: 'Each Wash & Pack DPR must have a different report date.' });
+      return res.status(400).json({ error: 'Every Washing and Packing report must have a unique upload ID.' });
+    }
+    for (const process of ['washing', 'packing']) {
+      const dates = itemDprReports.filter((report) => report.process === process).map((report) => report.reportDate);
+      if (new Set(dates).size !== dates.length) {
+        files.forEach((f) => fs.unlink(f.path, () => {}));
+        return res.status(400).json({ error: `Each ${process === 'washing' ? 'Washing' : 'Packing'} report must have a different report date.` });
+      }
     }
 
     const wbExt = wbFile.path + path.extname(wbFile.originalname);
@@ -596,8 +633,10 @@ app.post('/api/unit23/fill-actuals-direct', (req, res) => {
 
     const sewingExt = sewingFile ? sewingFile.path + path.extname(sewingFile.originalname) : null;
     if (sewingFile && sewingExt) fs.renameSync(sewingFile.path, sewingExt);
+    const summaryExt = summaryFile ? summaryFile.path + path.extname(summaryFile.originalname) : null;
+    if (summaryFile && summaryExt) fs.renameSync(summaryFile.path, summaryExt);
 
-    const dprExts = dprReports.map(({ file }) => {
+    const dprExts = itemDprReports.map(({ file }) => {
       const fileWithExt = file.path + path.extname(file.originalname);
       fs.renameSync(file.path, fileWithExt);
       return fileWithExt;
@@ -610,15 +649,17 @@ app.post('/api/unit23/fill-actuals-direct', (req, res) => {
     const cleanup = () => {
       fs.unlink(wbExt, () => {});
       if (sewingExt) fs.unlink(sewingExt, () => {});
+      if (summaryExt) fs.unlink(summaryExt, () => {});
       dprExts.forEach((filePath) => fs.unlink(filePath, () => {}));
       temporaryPaths.forEach((filePath) => fs.unlink(filePath, () => {}));
     };
 
-    const runScript = (scriptName, inputWb, reportFile, targetOut, extraArg = null) => {
+    const runScript = (scriptName, inputWb, reportFile, targetOut, extraArgs = []) => {
       return new Promise((resolve, reject) => {
         const scriptPath = path.join(__dirname, scriptName);
         const args = [scriptPath, inputWb, reportFile, targetOut];
-        if (extraArg) args.push(extraArg);
+        if (Array.isArray(extraArgs)) args.push(...extraArgs);
+        else if (extraArgs) args.push(extraArgs);
 
         execFile(PYTHON_BIN, args, (err, stdout, stderr) => {
           if (err) {
@@ -631,6 +672,9 @@ app.post('/api/unit23/fill-actuals-direct', (req, res) => {
           }
           let summary = {};
           try { summary = JSON.parse(stdout.trim().split('\n').pop()); } catch (_) {}
+          if (!summary.success || !summary.process) {
+            return reject(new Error((stderr || '').trim() || `No valid processor result returned by ${scriptName}.`));
+          }
           resolve(summary);
         });
       });
@@ -649,33 +693,76 @@ app.post('/api/unit23/fill-actuals-direct', (req, res) => {
         currentSource = intermediatePath;
       }
 
-      if (dprReports.length) {
-        const orderedDprReports = dprReports
+      if (itemDprReports.length) {
+        const orderedDprReports = itemDprReports
           .map((report, index) => ({ ...report, filePath: dprExts[index] }))
           .sort((a, b) => a.reportDate.localeCompare(b.reportDate));
 
         for (let index = 0; index < orderedDprReports.length; index += 1) {
           const report = orderedDprReports[index];
-          const targetOut = index === orderedDprReports.length - 1
+          const targetOut = index === orderedDprReports.length - 1 && !summaryExt
             ? outputPath
             : path.join(OUTPUT_DIR, `temp_dpr_${Date.now()}_${index}.xlsx`);
           if (targetOut !== outputPath) temporaryPaths.push(targetOut);
 
           const dprSummary = await runScript(
-            'fill_dpr_wash_pack.py',
+            'fill_unit23_item_reports.py',
             currentSource,
             report.filePath,
             targetOut,
-            report.reportDate
+            [report.process, report.reportDate]
           );
+          console.log('[Unit23] processor result:', {
+            process: report.process,
+            date: report.reportDate,
+            cellsWritten: dprSummary.cellsWritten || 0,
+            sheetsUpdated: dprSummary.sheetsUpdated || 0
+          });
+          combinedSummary.washingFilesProcessed = combinedSummary.washingFilesProcessed || 0;
+          combinedSummary.packingFilesProcessed = combinedSummary.packingFilesProcessed || 0;
+          combinedSummary.washingCellsWritten = combinedSummary.washingCellsWritten || 0;
+          combinedSummary.packingCellsWritten = combinedSummary.packingCellsWritten || 0;
+          combinedSummary.washingFilesProcessed += report.process === 'washing' ? 1 : 0;
+          combinedSummary.packingFilesProcessed += report.process === 'packing' ? 1 : 0;
+          combinedSummary.washingCellsWritten += report.process === 'washing' ? (dprSummary.cellsWritten || 0) : 0;
+          combinedSummary.packingCellsWritten += report.process === 'packing' ? (dprSummary.cellsWritten || 0) : 0;
+          combinedSummary.unmatchedItems = [...(combinedSummary.unmatchedItems || []), ...(dprSummary.unmatchedItems || [])];
+          combinedSummary.ambiguousItems = [...(combinedSummary.ambiguousItems || []), ...(dprSummary.ambiguousItems || [])];
+          combinedSummary.missingDestinationDates = [...(combinedSummary.missingDestinationDates || [])];
+          combinedSummary.missingDestinationDates.push(...(dprSummary.missingDestinationDates || []));
+          combinedSummary.styleSheetsSet = new Set([...(combinedSummary.styleSheetsSet || []), ...(dprSummary.styleSheetsUpdated || [])]);
           combinedSummary.sheetsUpdated = Math.max(combinedSummary.sheetsUpdated, dprSummary.sheetsUpdated || 0);
-          combinedSummary.cellsFilled += (dprSummary.cellsFilled || 0);
+          combinedSummary.cellsFilled += (dprSummary.cellsWritten || 0);
           currentSource = targetOut;
         }
       } else if (sewingExt) {
         fs.renameSync(currentSource, outputPath);
       } else {
         fs.copyFileSync(wbExt, outputPath);
+      }
+
+      if (summaryExt) {
+        const summaryInput = currentSource;
+        const summarySummary = await runScript(
+          'fill_unit23_summary.py',
+          summaryInput,
+          summaryExt,
+          outputPath
+        );
+        combinedSummary.summaryReportProcessed = 1;
+        combinedSummary.summaryRowsUpdated = summarySummary.summaryRowsUpdated || 0;
+        combinedSummary.summaryCompletionCellsWritten = summarySummary.completionCellsWritten || 0;
+        combinedSummary.summaryStyleSheetsUpdated = summarySummary.styleSheetsUpdated || [];
+        combinedSummary.summaryUnmatchedGroups = summarySummary.unmatchedGroups || [];
+        combinedSummary.summaryAmbiguousGroups = summarySummary.ambiguousGroups || [];
+        currentSource = outputPath;
+      }
+
+      if (combinedSummary.styleSheetsSet) {
+        combinedSummary.styleSheetsUpdated = combinedSummary.styleSheetsSet.size;
+        delete combinedSummary.styleSheetsSet;
+      } else {
+        combinedSummary.styleSheetsUpdated = 0;
       }
 
       cleanup();
