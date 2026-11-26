@@ -4,6 +4,7 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { execFile } = require('child_process');
 
 const db = require('./db');
@@ -68,6 +69,7 @@ app.get('/api/jobs', async (req, res) => {
 // re-upload it. Independent of MySQL so this works even if the DB
 // is unreachable.
 const planFiles = new Map();
+const unit23SummaryReviews = new Map();
 
 app.post('/api/process', (req, res) => {
   upload.single('file')(req, res, async (uploadErr) => {
@@ -316,10 +318,18 @@ app.post('/api/fill-actuals-direct', (req, res) => {
     try {
       let currentSource = wbExt;
       let combinedSummary = { sheetsUpdated: 0, cellsFilled: 0 };
-
       if (sewingExt) {
         const intermediatePath = path.join(OUTPUT_DIR, `temp_sewing_${Date.now()}.xlsx`);
         const sSummary = await runScript('fill_actuals.py', currentSource, sewingExt, intermediatePath);
+        if (!Number.isInteger(Number(sSummary.cellsFilled)) || sSummary.cellsFilled < 0) {
+          throw new Error('The Unit 23 Sewing processor returned an invalid result.');
+        }
+        if ((sSummary.cellsFilled || 0) === 0 && (sSummary.unmatchedStyles || []).length > 0) {
+          throw new Error(`The Unit 23 Sewing report did not match any destination styles: ${(sSummary.unmatchedStyles || []).slice(0, 10).join(', ')}`);
+        }
+        if ((sSummary.cellsFilled || 0) === 0) {
+          throw new Error('The Unit 23 Sewing report matched no destination dates and wrote no cells.');
+        }
         combinedSummary.sheetsUpdated = Math.max(combinedSummary.sheetsUpdated, sSummary.sheetsUpdated || 0);
         combinedSummary.cellsFilled += (sSummary.cellsFilled || 0);
         currentSource = intermediatePath;
@@ -683,6 +693,40 @@ app.post('/api/unit23/fill-actuals-direct', (req, res) => {
     try {
       let currentSource = wbExt;
       let combinedSummary = { sheetsUpdated: 0, cellsFilled: 0 };
+      let confirmedMappingPath = null;
+
+      if (summaryExt && !req.body?.summaryMapping) {
+        const reviewPath = path.join(OUTPUT_DIR, `temp_summary_review_${Date.now()}.xlsx`);
+        temporaryPaths.push(reviewPath);
+        const review = await runScript(
+          'fill_unit23_summary.py',
+          wbExt,
+          summaryExt,
+          reviewPath,
+          ['--review']
+        );
+        const workbookFingerprint = crypto.createHash('sha256').update(fs.readFileSync(wbExt)).digest('hex');
+        const reportFingerprint = crypto.createHash('sha256').update(fs.readFileSync(summaryExt)).digest('hex');
+        const reviewToken = crypto.randomBytes(24).toString('hex');
+        unit23SummaryReviews.set(reviewToken, {
+          workbookFingerprint,
+          reportFingerprint,
+          destinationIdentifiers: review.destinationIdentifiers || [],
+          expiresAt: Date.now() + 30 * 60 * 1000,
+        });
+        cleanup();
+        return res.json({
+          success: true,
+          requiresSummaryMapping: true,
+          reviewToken,
+          review: {
+            destinations: review.destinations || [],
+            candidateAllocations: review.candidateAllocations || [],
+            ambiguousAllocations: review.ambiguousAllocations || [],
+            unresolvedMappings: review.unresolvedMappings || [],
+          },
+        });
+      }
 
       if (sewingExt) {
         const intermediatePath = path.join(OUTPUT_DIR, `temp_sewing_${Date.now()}.xlsx`);
@@ -690,7 +734,104 @@ app.post('/api/unit23/fill-actuals-direct', (req, res) => {
         const sSummary = await runScript('fill_actuals.py', currentSource, sewingExt, intermediatePath);
         combinedSummary.sheetsUpdated = Math.max(combinedSummary.sheetsUpdated, sSummary.sheetsUpdated || 0);
         combinedSummary.cellsFilled += (sSummary.cellsFilled || 0);
+        combinedSummary.sewingFilesProcessed = 1;
+        combinedSummary.sewingCellsWritten = sSummary.cellsFilled || 0;
+        combinedSummary.styleSheetsSet = new Set([
+          ...(combinedSummary.styleSheetsSet || []),
+          ...(sSummary.styleSheetsUpdated || [])
+        ]);
+        combinedSummary.unmatchedStyles = [
+          ...(combinedSummary.unmatchedStyles || []),
+          ...(sSummary.unmatchedStyles || [])
+        ];
         currentSource = intermediatePath;
+      }
+
+      if (summaryExt && !req.body?.summaryMapping) {
+        const reviewPath = path.join(OUTPUT_DIR, `temp_summary_review_${Date.now()}.xlsx`);
+        temporaryPaths.push(reviewPath);
+        const review = await runScript(
+          'fill_unit23_summary.py',
+          wbExt,
+          summaryExt,
+          reviewPath,
+          ['--review']
+        );
+        const workbookFingerprint = crypto.createHash('sha256').update(fs.readFileSync(wbExt)).digest('hex');
+        const reportFingerprint = crypto.createHash('sha256').update(fs.readFileSync(summaryExt)).digest('hex');
+        const reviewToken = crypto.randomBytes(24).toString('hex');
+        unit23SummaryReviews.set(reviewToken, {
+          workbookFingerprint,
+          reportFingerprint,
+          destinationIdentifiers: review.destinationIdentifiers || [],
+          expiresAt: Date.now() + 30 * 60 * 1000,
+        });
+        cleanup();
+        return res.json({
+          success: true,
+          requiresSummaryMapping: true,
+          reviewToken,
+          review: {
+            destinations: review.destinations || [],
+            candidateAllocations: review.candidateAllocations || [],
+            ambiguousAllocations: review.ambiguousAllocations || [],
+            unresolvedMappings: review.unresolvedMappings || [],
+          },
+        });
+      }
+
+      if (summaryExt) {
+        const reviewToken = String(req.body?.summaryReviewToken || '');
+        const review = unit23SummaryReviews.get(reviewToken);
+        const workbookFingerprint = crypto.createHash('sha256').update(fs.readFileSync(wbExt)).digest('hex');
+        const reportFingerprint = crypto.createHash('sha256').update(fs.readFileSync(summaryExt)).digest('hex');
+        if (!review || review.expiresAt < Date.now() ||
+            review.workbookFingerprint !== workbookFingerprint ||
+            review.reportFingerprint !== reportFingerprint) {
+          throw new Error('The section-5 mapping review is stale or the workbook/cumulative report changed. Please review the files again.');
+        }
+
+        let confirmedSummaryMapping;
+        try {
+          confirmedSummaryMapping = typeof req.body.summaryMapping === 'string'
+            ? JSON.parse(req.body.summaryMapping)
+            : req.body.summaryMapping;
+        } catch (_) {
+          throw new Error('The confirmed section-5 mapping is invalid JSON.');
+        }
+        if (!confirmedSummaryMapping || !Array.isArray(confirmedSummaryMapping.mappings) ||
+            !Array.isArray(confirmedSummaryMapping.destinationIdentifiers)) {
+          throw new Error('Confirmed section-5 mappings and destination identifiers are required.');
+        }
+        if (confirmedSummaryMapping.mappings.length === 0) {
+          throw new Error('At least one confirmed section-5 destination mapping is required.');
+        }
+        if (confirmedSummaryMapping.mappings.some((mapping) =>
+          !mapping || typeof mapping.sheet !== 'string' || !Number.isInteger(Number(mapping.row)) ||
+          !Array.isArray(mapping.allocationIds) || mapping.allocationIds.length === 0 ||
+          mapping.allocationIds.some((allocationId) => typeof allocationId !== 'string' || !allocationId))) {
+          throw new Error('Each section-5 mapping must include a valid sheet, row, and allocation ID list.');
+        }
+
+        const canonical = (items) => JSON.stringify(items.map((item) => ({
+          sheet: String(item.sheet || ''),
+          row: Number(item.row),
+          style: String(item.style || ''),
+          item: String(item.item || ''),
+          xfty: String(item.xfty || ''),
+          qty: String(item.qty ?? ''),
+        })).sort((a, b) => `${a.sheet}:${a.row}`.localeCompare(`${b.sheet}:${b.row}`)));
+        if (canonical(confirmedSummaryMapping.destinationIdentifiers) !== canonical(review.destinationIdentifiers)) {
+          throw new Error('The confirmed destination rows do not match the reviewed workbook. Please review the files again.');
+        }
+
+        confirmedMappingPath = path.join(
+          OUTPUT_DIR,
+          `temp_summary_mapping_${Date.now()}_${crypto.randomBytes(6).toString('hex')}.json`
+        );
+        await fs.promises.writeFile(confirmedMappingPath, JSON.stringify(confirmedSummaryMapping), 'utf8');
+        temporaryPaths.push(confirmedMappingPath);
+        unit23SummaryReviews.delete(reviewToken);
       }
 
       if (itemDprReports.length) {
@@ -747,7 +888,8 @@ app.post('/api/unit23/fill-actuals-direct', (req, res) => {
           'fill_unit23_summary.py',
           summaryInput,
           summaryExt,
-          outputPath
+          outputPath,
+          ['--mapping', confirmedMappingPath]
         );
         combinedSummary.summaryReportProcessed = 1;
         combinedSummary.summaryRowsUpdated = summarySummary.summaryRowsUpdated || 0;
@@ -755,6 +897,9 @@ app.post('/api/unit23/fill-actuals-direct', (req, res) => {
         combinedSummary.summaryStyleSheetsUpdated = summarySummary.styleSheetsUpdated || [];
         combinedSummary.summaryUnmatchedGroups = summarySummary.unmatchedGroups || [];
         combinedSummary.summaryAmbiguousGroups = summarySummary.ambiguousGroups || [];
+        combinedSummary.summaryUnresolvedMappings = summarySummary.unresolvedMappings || [];
+        combinedSummary.summaryQuantityConflicts = summarySummary.quantityConflicts || [];
+        combinedSummary.summaryAmbiguousAllocations = summarySummary.ambiguousAllocations || [];
         currentSource = outputPath;
       }
 

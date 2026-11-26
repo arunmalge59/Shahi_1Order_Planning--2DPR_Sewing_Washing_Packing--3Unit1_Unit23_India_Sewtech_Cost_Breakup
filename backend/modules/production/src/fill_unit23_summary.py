@@ -115,6 +115,7 @@ def source_header_columns(ws, values, header_row):
         "po": ("po",),
         "po_qty": ("po qty",),
         "country": ("country",),
+        "colour": ("colour", "color"),
         "delivery": ("delivery date",),
         "product": ("product type",),
     }
@@ -175,22 +176,25 @@ def is_note_row(values, row, ws):
                  ("orange colour" in joined and "sample pcs" in joined)))
 
 
-def parse_source(path):
+def parse_source_allocations(path):
     workbook = openpyxl.load_workbook(path, data_only=False)
     cached = openpyxl.load_workbook(path, data_only=True)
     ws = workbook.worksheets[0]
     cached_ws = cached.worksheets[0]
     values = unpack_merged(ws)
     cached_values = unpack_merged(cached_ws)
-    aggregated = defaultdict(lambda: [0.0, 0.0, 0.0])
+    allocations = []
+    allocation_by_signature = {}
+    ambiguous_signatures = set()
     seen_detail = False
     columns = None
+    current = None
     context = {"style": "", "item": "", "po": "", "po_qty": "", "country": "",
-               "delivery": None, "product": ""}
+               "colour": "", "delivery": None, "product": ""}
 
     def reset_context():
         return {"style": "", "item": "", "po": "", "po_qty": "", "country": "",
-                "delivery": None, "product": ""}
+                "colour": "", "delivery": None, "product": ""}
 
     for row in range(1, ws.max_row + 1):
         populated = "".join(text(values.get("{}{}".format(get_column_letter(col), row)))
@@ -199,10 +203,12 @@ def parse_source(path):
             continue
         if is_note_row(values, row, ws) or is_title_row(ws, values, row):
             context = reset_context()
+            current = None
             columns = None
             continue
         if is_section_boundary(values, row, ws):
             context = reset_context()
+            current = None
             continue
         if is_header_row(ws, values, row):
             columns = source_header_columns(ws, values, row)
@@ -219,6 +225,7 @@ def parse_source(path):
         explicit_po = text(value("po"))
         explicit_po_qty = value("po_qty")
         explicit_country = text(value("country"))
+        explicit_colour = text(value("colour"))
         explicit_delivery = value("delivery")
         explicit_product = text(value("product"))
 
@@ -230,13 +237,14 @@ def parse_source(path):
             context["po_qty"] = explicit_po_qty
         if explicit_country:
             context["country"] = explicit_country
+        if explicit_colour:
+            context["colour"] = explicit_colour
         if explicit_product:
             context["product"] = explicit_product
         if explicit_po:
-            if explicit_po != context["po"]:
-                context["delivery"] = None
             context["po"] = explicit_po
 
+        parsed_delivery = context["delivery"]
         if explicit_delivery not in (None, ""):
             parsed_delivery = parse_date(explicit_delivery)
             if parsed_delivery is None:
@@ -244,7 +252,7 @@ def parse_source(path):
             context["delivery"] = parsed_delivery
 
         quantity_values = [value(key) for key in ("sewing", "washing", "packing")]
-        has_identifier = explicit_style or explicit_item or explicit_po
+        has_identifier = explicit_style or explicit_item or explicit_po or explicit_country or explicit_colour
         has_quantity = any(raw not in (None, "") for raw in quantity_values)
         if not has_identifier and not has_quantity:
             continue
@@ -266,12 +274,74 @@ def parse_source(path):
                 raise ValueError("{} at row {} has a blank required quantity.".format(key.upper(), row))
             quantities.append(qty)
 
-        aggregate_key = (norm(context["style"]), norm(context["item"]), context["delivery"].isoformat())
+        signature = (
+            norm(context["style"]), norm(context["item"]), text(context["po"]),
+            context["delivery"].isoformat(), norm(context["country"]), norm(context["colour"])
+        )
+        if current is None or current["signature"] != signature:
+            previous = allocation_by_signature.get(signature)
+            if previous is not None and current is not None and current is not previous:
+                ambiguous_signatures.add(signature)
+            if previous is None or previous is not current:
+                current = {
+                    "signature": signature,
+                    "style": context["style"],
+                    "item": context["item"],
+                    "po": text(context["po"]),
+                    "delivery": context["delivery"].isoformat(),
+                    "country": context["country"],
+                    "colour": context["colour"],
+                    "po_qty": context["po_qty"],
+                    "totals": [0.0, 0.0, 0.0],
+                    "rows": [],
+                }
+                allocations.append(current)
+                allocation_by_signature[signature] = current
+        if current["po_qty"] in (None, ""):
+            current["po_qty"] = context["po_qty"]
+        current["rows"].append(row)
         for index, qty in enumerate(quantities):
-            aggregated[aggregate_key][index] += qty
+            current["totals"][index] += qty
         seen_detail = True
+
     if not seen_detail:
         fail("Cumulative report contains no valid detail rows.")
+
+    allocations_by_source_signature = defaultdict(list)
+    ambiguous = []
+    aggregate = defaultdict(lambda: [0.0, 0.0, 0.0])
+    for index, allocation in enumerate(allocations, start=1):
+        allocation["id"] = "A{}".format(index)
+        allocation["order_qty"] = None
+        if allocation["po_qty"] not in (None, ""):
+            allocation["order_qty"] = float(number_value(allocation["po_qty"], None, allocation["rows"][0],
+                                                         "PO QTY"))
+        allocation["totals"] = [clean_number(value) for value in allocation["totals"]]
+        allocation["ambiguous"] = allocation["signature"] in ambiguous_signatures
+        allocations_by_source_signature[allocation["signature"]].append(allocation)
+        key = allocation["signature"][:3] + (allocation["delivery"],)
+        for total_index, total in enumerate(allocation["totals"]):
+            aggregate[key][total_index] += total
+        if allocation["ambiguous"]:
+            ambiguous.append({
+                "allocationId": allocation["id"],
+                "style": allocation["style"],
+                "item": allocation["item"],
+                "po": allocation["po"],
+                "delivery": allocation["delivery"],
+                "country": allocation["country"],
+                "colour": allocation["colour"],
+                "reason": "The identical Style/Item/PO/Delivery/Country/Colour allocation signature is repeated in non-contiguous source sections; split cannot be proven."
+            })
+    return allocations, ambiguous, aggregate
+
+
+def parse_source(path):
+    allocations, _ambiguous, aggregate = parse_source_allocations(path)
+    aggregated = defaultdict(lambda: [0.0, 0.0, 0.0])
+    for key, totals in aggregate.items():
+        legacy_key = (key[0], key[1], key[3])
+        aggregated[legacy_key] = totals
     return aggregated
 
 
@@ -303,23 +373,113 @@ def date_key(value):
     return parsed.isoformat() if parsed else ""
 
 
-def write_summary(workbook, aggregates):
+def summary_destinations(workbook):
+    destinations = []
+    for ws in workbook.worksheets:
+        header_row, cols = find_summary_header(ws)
+        if header_row is None:
+            continue
+        style_col = next((c for c in range(1, ws.max_column + 1)
+                          if norm(ws.cell(header_row, c).value) == "style"), None)
+        item_col = next((c for c in range(1, ws.max_column + 1)
+                         if norm(ws.cell(header_row, c).value) in ("item", "item no")), None)
+        for row in range(header_row + 1, ws.max_row + 1):
+            qty_raw = ws.cell(row=row, column=cols["qty"]).value
+            if qty_raw in (None, "") and not text(ws.cell(row=row, column=cols["xfty"]).value):
+                continue
+            if not parse_date(ws.cell(row=row, column=cols["xfty"]).value):
+                continue
+            destinations.append({
+                "sheet": ws.title,
+                "row": row,
+                "style": text(ws.cell(row=row, column=style_col).value) if style_col else "",
+                "item": text(ws.cell(row=row, column=item_col).value) if item_col else "",
+                "xfty": date_key(ws.cell(row=row, column=cols["xfty"]).value),
+                "qty": qty_raw,
+            })
+    return destinations
+
+
+def allocation_review(workbook, report_path):
+    allocations, ambiguous, _aggregate = parse_source_allocations(report_path)
+    destinations = summary_destinations(workbook)
+    candidate_allocations = []
+    for allocation in allocations:
+        candidate_allocations.append({
+            "id": allocation["id"],
+            "style": allocation["style"],
+            "item": allocation["item"],
+            "po": allocation["po"],
+            "deliveryDate": allocation["delivery"],
+            "country": allocation["country"],
+            "colour": allocation["colour"],
+            "orderQty": allocation["order_qty"],
+            "productionTotals": allocation["totals"],
+            "ambiguous": allocation["ambiguous"],
+        })
+
+    rows = []
+    unresolved = []
+    for destination in destinations:
+        candidates = [
+            allocation for allocation in candidate_allocations
+            if norm(allocation["style"]) == norm(destination["style"])
+            and norm(allocation["item"]) == norm(destination["item"])
+        ]
+        suggested = []
+        if candidates and destination["qty"] not in (None, ""):
+            try:
+                destination_qty = float(number_value(destination["qty"], None, destination["row"], "Qty"))
+            except ValueError:
+                destination_qty = None
+            if destination_qty is not None:
+                suggested = [allocation["id"] for allocation in candidates
+                             if allocation["orderQty"] is not None
+                             and abs(float(allocation["orderQty"]) - destination_qty) < 0.0001]
+        rows.append(dict(destination, candidateAllocationIds=[allocation["id"] for allocation in candidates],
+                         suggestedAllocationIds=suggested, confirmedAllocationIds=[]))
+        if not candidates:
+            unresolved.append({
+                "sheet": destination["sheet"], "row": destination["row"],
+                "reason": "No source allocation matches the destination Style and Item."
+            })
+        elif len(candidates) > 1 and not suggested:
+            unresolved.append({
+                "sheet": destination["sheet"], "row": destination["row"],
+                "reason": "Multiple source allocations require explicit shipment selection."
+            })
+    return {
+        "review": True,
+        "destinations": rows,
+        "candidateAllocations": candidate_allocations,
+        "ambiguousAllocations": ambiguous,
+        "unresolvedMappings": unresolved,
+        "destinationIdentifiers": [
+            {"sheet": row["sheet"], "row": row["row"], "style": row["style"],
+             "item": row["item"], "xfty": row["xfty"], "qty": text(row["qty"])}
+            for row in rows
+        ],
+    }
+
+
+def write_summary(workbook, allocations, mapping):
     updated_rows = 0
     completion_cells = 0
     updated_sheets = set()
     unmatched = []
     ambiguous = []
+    quantity_conflicts = []
+    allocations_by_id = {allocation["id"]: allocation for allocation in allocations}
+    mappings_by_destination = {
+        "{}\u0000{}".format(item["sheet"], item["row"]): item.get("allocationIds", [])
+        for item in mapping
+    }
+    used_allocations = defaultdict(list)
+    allocation_mappings = defaultdict(list)
     for ws in workbook.worksheets:
         header_row, cols = find_summary_header(ws)
         if header_row is None:
             continue
-
-        daily_pairs = set()
-        for row in range(4, ws.max_row + 1):
-            style = text(ws.cell(row=row, column=1).value)
-            item = text(ws.cell(row=row, column=2).value)
-            if style and item:
-                daily_pairs.add((norm(style), norm(item)))
 
         summary_style_col = next((c for c in range(1, ws.max_column + 1)
                                   if norm(ws.cell(header_row, c).value) == "style"), None)
@@ -329,25 +489,47 @@ def write_summary(workbook, aggregates):
             if not delivery:
                 continue
             summary_style = norm(ws.cell(row=row, column=summary_style_col).value) if summary_style_col else ""
-            candidates = set()
-            if summary_style:
-                candidates.update(pair for pair in daily_pairs if pair[0] == summary_style)
-            else:
-                candidates.update(daily_pairs)
-            if len(daily_pairs) == 1 and not summary_style:
-                candidates = daily_pairs
-            if len(candidates) != 1:
-                ambiguous.append({"sheet": ws.title, "style": summary_style, "xfty": delivery,
-                                  "reason": "Destination Style/Item context is absent or ambiguous."})
+            summary_item_col = next((c for c in range(1, ws.max_column + 1)
+                                     if norm(ws.cell(header_row, c).value) in ("item", "item no")), None)
+            summary_item = norm(ws.cell(row=row, column=summary_item_col).value) if summary_item_col else ""
+            selected_ids = mappings_by_destination.get("{}\u0000{}".format(ws.title, row), [])
+            if not selected_ids:
+                unmatched.append({"sheet": ws.title, "row": row, "style": summary_style,
+                                  "item": summary_item, "xfty": delivery,
+                                  "reason": "No confirmed source allocation mapping."})
                 continue
-            style, item = next(iter(candidates))
-            source_key = (style, item, delivery)
-            actual = aggregates.get(source_key)
-            if actual is None:
-                unmatched.append({"sheet": ws.title, "style": style, "item": item, "xfty": delivery})
+            selected_allocations = [allocations_by_id.get(allocation_id) for allocation_id in selected_ids]
+            if any(allocation is None for allocation in selected_allocations):
+                unmatched.append({"sheet": ws.title, "row": row, "reason": "Mapping contains an unknown allocation."})
                 continue
+            for allocation in selected_allocations:
+                used_allocations[allocation["id"]].append((ws.title, row))
+                allocation_mappings[allocation["id"]].append((ws.title, row))
+            repeated = [allocation_id for allocation_id, destinations in allocation_mappings.items()
+                        if allocation_id in selected_ids and len(destinations) > 1]
+            mismatched = [allocation for allocation in selected_allocations
+                          if norm(allocation["style"]) != summary_style
+                          or norm(allocation["item"]) != summary_item]
+            if repeated or mismatched:
+                ambiguous.append({
+                    "sheet": ws.title, "row": row, "allocationIds": selected_ids,
+                    "reason": "A source allocation is duplicated or does not match the destination Style/Item."
+                })
+                continue
+            actual = [sum(float(a["totals"][index]) for a in selected_allocations) for index in range(3)]
 
             qty_cell = "{}{}".format(get_column_letter(cols["qty"]), row)
+            try:
+                destination_qty = float(number_value(ws.cell(row=row, column=cols["qty"]).value, None, row, "Qty"))
+            except ValueError:
+                destination_qty = None
+            mapped_order_qty = sum(float(a["order_qty"]) for a in selected_allocations if a["order_qty"] is not None)
+            if destination_qty is None or abs(mapped_order_qty - destination_qty) > 0.0001:
+                quantity_conflicts.append({
+                    "sheet": ws.title, "row": row, "style": summary_style, "item": summary_item,
+                    "destinationQty": destination_qty, "mappedOrderQty": mapped_order_qty,
+                    "allocationIds": selected_ids,
+                })
             process_columns = (
                 ("sewing", cols["sewing"], cols["sewing_balance"]),
                 ("wash", cols["wash"], cols["wash_balance"]),
@@ -357,16 +539,31 @@ def write_summary(workbook, aggregates):
                 ws.cell(row=row, column=completed_col, value=clean_number(actual[index]))
                 completion_cells += 1
                 completed_cell = "{}{}".format(get_column_letter(completed_col), row)
-                ws.cell(row=row, column=balance_col, value="={}-{}{}".format(
-                    completed_cell, get_column_letter(cols["qty"]), row))
+                balance_cell = ws.cell(row=row, column=balance_col)
+                expected = "={}{}-{}{}".format(completed_cell, "", get_column_letter(cols["qty"]), row)
+                expected = "={}-{}{}".format(completed_cell, get_column_letter(cols["qty"]), row)
+                if balance_cell.data_type == "f" and balance_cell.value == expected:
+                    continue
+                if balance_cell.value is None or isinstance(balance_cell.value, (int, float)) or \
+                        balance_cell.data_type == "f":
+                    balance_cell.value = expected
             updated_rows += 1
             updated_sheets.add(ws.title)
+
+    for allocation_id, destinations in used_allocations.items():
+        if len(destinations) > 1:
+            ambiguous.append({
+                "allocationId": allocation_id,
+                "destinations": destinations,
+                "reason": "A source allocation was mapped to more than one destination row."
+            })
     return {
         "summaryRowsUpdated": updated_rows,
         "completionCellsWritten": completion_cells,
         "styleSheetsUpdated": sorted(updated_sheets),
         "unmatchedGroups": unmatched,
         "ambiguousGroups": ambiguous,
+        "quantityConflicts": quantity_conflicts,
     }
 
 
@@ -375,18 +572,38 @@ def clean_number(value):
 
 
 def main():
-    if len(sys.argv) != 4:
-        fail("Usage: fill_unit23_summary.py <workbook> <summary report> <output>")
+    if len(sys.argv) < 4:
+        fail("Usage: fill_unit23_summary.py <workbook> <summary report> <output> [--review | --mapping <json>]")
     workbook_path, report_path, output_path = sys.argv[1:4]
-    try:
-        aggregates = parse_source(report_path)
-    except (ValueError, OSError) as exc:
-        fail(str(exc))
     try:
         workbook = openpyxl.load_workbook(workbook_path, data_only=False)
     except Exception as exc:
         fail("Could not open destination workbook: {}".format(exc))
-    summary = write_summary(workbook, aggregates)
+
+    try:
+        if len(sys.argv) >= 5 and sys.argv[4] == "--review":
+            result = allocation_review(workbook, report_path)
+            print(json.dumps(dict({"success": True, "process": "summaryReview"}, **result)))
+            return
+        allocations, ambiguous, _aggregate = parse_source_allocations(report_path)
+    except (ValueError, OSError) as exc:
+        fail(str(exc))
+
+    mapping = []
+    if len(sys.argv) >= 6 and sys.argv[4] == "--mapping":
+        try:
+            with open(sys.argv[5], "r", encoding="utf-8") as handle:
+                mapping_payload = json.load(handle)
+            mapping = mapping_payload.get("mappings", [])
+        except (OSError, ValueError, AttributeError) as exc:
+            fail("Could not read confirmed summary mapping: {}".format(exc))
+    else:
+        fail("Confirmed PO-to-summary mappings are required.")
+
+    summary = write_summary(workbook, allocations, mapping)
+    summary["unresolvedMappings"] = summary["unmatchedGroups"]
+    summary["ambiguousAllocations"] = ambiguous
+    summary["success"] = bool(allocations)
     try:
         workbook.calculation.fullCalcOnLoad = True
         workbook.calculation.forceFullCalc = True

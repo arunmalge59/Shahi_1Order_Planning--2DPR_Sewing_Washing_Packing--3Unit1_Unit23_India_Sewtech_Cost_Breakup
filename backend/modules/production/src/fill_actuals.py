@@ -135,9 +135,19 @@ def main():
             return [("direct", raw_style)]
         if raw_style in combined_bases:
             return [("combined", raw_style)]
-        for sn in sheet_names:
-            if raw_style == sn or raw_style.startswith(sn + "-"):
-                return [("direct", sn)]
+        matches = [
+            (len(sn), "direct", sn)
+            for sn in sheet_names
+            if raw_style.startswith(sn)
+        ]
+        matches.extend(
+            (len(base), "combined", base)
+            for base in combined_bases
+            if raw_style.startswith(base)
+        )
+        if matches:
+            _, kind, key = max(matches, key=lambda match: (match[0], match[1] == "direct"))
+            return [(kind, key)]
         return []
 
     sheet_daily = defaultdict(lambda: defaultdict(int))
@@ -184,6 +194,7 @@ def main():
 
     sheets_updated = 0
     cells_filled = 0
+    updated_sheets = []
     center_align = Alignment(horizontal='center', vertical='center')
 
     valid_uploaded_dates = [ud for ud in uploaded_dates if isinstance(ud, datetime.date)]
@@ -243,6 +254,7 @@ def main():
 
         if touched:
             sheets_updated += 1
+            updated_sheets.append(sheet_name)
 
     try:
         wb.save(out_path)
@@ -251,7 +263,9 @@ def main():
 
     print(json.dumps({
         "success": True,
+        "process": "sewing",
         "sheetsUpdated": sheets_updated,
+        "styleSheetsUpdated": updated_sheets,
         "cellsFilled": cells_filled,
         "combinedSplitStyles": sorted(combined_daily.keys()),
         "unmatchedStyles": sorted(unmatched_styles),

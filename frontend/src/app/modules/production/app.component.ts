@@ -7,6 +7,7 @@ import {
   LinePlanService,
   ProcessSummary,
   FillActualsSummary,
+  FillActualsResponse,
   DprReportUpload,
   OrderSummarySummary,
   JobRecord,
@@ -140,6 +141,9 @@ export class AppComponent implements OnInit, OnDestroy {
   unit23DirectActualsSummary: FillActualsSummary = {};
   unit23DirectActualsDownloadUrl = '';
   unit23DprFilesProcessed = 0;
+  unit23SummaryReview: FillActualsResponse['review'] | null = null;
+  unit23SummaryReviewToken = '';
+  unit23SummarySelections: Record<string, string[]> = {};
 
   onUnit23FileInputChange(event: Event): void {
     const input = event.target as HTMLInputElement;
@@ -529,8 +533,15 @@ export class AppComponent implements OnInit, OnDestroy {
             this.unit23DirectActualsState = 'idle';
             return;
           }
+          if (res.requiresSummaryMapping) {
+            this.unit23SummaryReview = res.review || null;
+            this.unit23SummaryReviewToken = res.reviewToken || '';
+            this.unit23SummarySelections = {};
+            this.unit23DirectActualsState = 'idle';
+            return;
+          }
           this.unit23DirectActualsSummary = res.summary || {};
-          this.unit23DirectActualsDownloadUrl = this.linePlanService.getDownloadUrl(res.downloadUrl);
+          this.unit23DirectActualsDownloadUrl = this.linePlanService.getDownloadUrl(res.downloadUrl || '');
           this.unit23DprFilesProcessed = washingReports.length + packingReports.length;
           this.unit23DirectActualsState = 'done';
         },
@@ -541,6 +552,73 @@ export class AppComponent implements OnInit, OnDestroy {
       });
   }
 
+  confirmUnit23SummaryMapping(): void {
+    if (!this.unit23DirectWorkbookFile || !this.unit23DirectSummaryReportFile || !this.unit23SummaryReview) return;
+    const mappings = this.unit23SummaryReview.destinations
+      .map((destination: any) => ({
+      sheet: destination.sheet,
+      row: destination.row,
+      allocationIds: this.unit23SummarySelections[`${destination.sheet}:${destination.row}`] || [],
+      }))
+      .filter((mapping: any) => mapping.allocationIds.length > 0);
+    const destinationIdentifiers = this.unit23SummaryReview.destinations.map((destination: any) => ({
+      sheet: destination.sheet,
+      row: destination.row,
+      style: destination.style || '',
+      item: destination.item || '',
+      xfty: destination.xfty || '',
+      qty: String(destination.qty ?? ''),
+    }));
+    const selectedWashingReports = this.unit23DirectWashingReports.filter(
+      (report): report is Unit23DprReportEntry & { file: File } => report.file !== null
+    );
+    const selectedPackingReports = this.unit23DirectPackingReports.filter(
+      (report): report is Unit23DprReportEntry & { file: File } => report.file !== null
+    );
+    const washingReports: DprReportUpload[] = selectedWashingReports.map((report) => ({
+      id: report.id, file: report.file, reportDate: report.reportDate, process: 'washing'
+    }));
+    const packingReports: DprReportUpload[] = selectedPackingReports.map((report) => ({
+      id: report.id, file: report.file, reportDate: report.reportDate, process: 'packing'
+    }));
+    this.unit23DirectActualsState = 'loading';
+    this.linePlanService.fillActualsDirectUnit23(
+      this.unit23DirectWorkbookFile,
+      this.unit23DirectSewingReportFile,
+      washingReports,
+      packingReports,
+      this.unit23DirectSummaryReportFile,
+      { mappings, destinationIdentifiers },
+      this.unit23SummaryReviewToken
+    ).subscribe({
+      next: (res) => {
+        this.unit23DirectActualsSummary = res.summary || {};
+        this.unit23DirectActualsDownloadUrl = this.linePlanService.getDownloadUrl(res.downloadUrl || '');
+        this.unit23DirectActualsState = 'done';
+        this.unit23SummaryReview = null;
+      },
+      error: (err: HttpErrorResponse) => {
+        this.unit23DirectActualsError = err.error?.error || 'Failed to apply the confirmed summary mapping.';
+        this.unit23DirectActualsState = 'idle';
+      },
+    });
+  }
+
+  toggleUnit23SummaryAllocation(destination: any, allocationId: string): void {
+    const key = `${destination.sheet}:${destination.row}`;
+    const selected = new Set(this.unit23SummarySelections[key] || []);
+    if (selected.has(allocationId)) selected.delete(allocationId);
+    else selected.add(allocationId);
+    this.unit23SummarySelections[key] = Array.from(selected);
+  }
+
+  unit23SummaryCandidates(destination: any): any[] {
+    return (this.unit23SummaryReview?.candidateAllocations || []).filter((allocation: any) =>
+      String(allocation.style || '').toLowerCase() === String(destination.style || '').toLowerCase() &&
+      String(allocation.item || '').toLowerCase() === String(destination.item || '').toLowerCase()
+    );
+  }
+
   resetDirectActualsUnit23(): void {
     this.unit23DirectActualsState = 'idle';
     this.unit23DirectSewingReportFile = null;
@@ -549,6 +627,9 @@ export class AppComponent implements OnInit, OnDestroy {
     this.unit23DirectPackingReports = [this.createUnit23DprReportEntry()];
     this.unit23DirectActualsError = null;
     this.unit23DprFilesProcessed = 0;
+    this.unit23SummaryReview = null;
+    this.unit23SummaryReviewToken = '';
+    this.unit23SummarySelections = {};
   }
 
   private createUnit23DprReportEntry(): Unit23DprReportEntry {

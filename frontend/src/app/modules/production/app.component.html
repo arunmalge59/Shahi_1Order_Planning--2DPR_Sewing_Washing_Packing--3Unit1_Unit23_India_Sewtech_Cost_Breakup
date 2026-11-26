@@ -559,7 +559,38 @@
           </div>
         </div>
 
-        <ng-container *ngIf="unit23DirectActualsState === 'idle'">
+        <div class="card" *ngIf="unit23SummaryReview as review">
+          <div class="card-header">
+            <div>
+              <h3>Section 5: PO-to-summary mapping review</h3>
+              <p class="card-sub">Select the exact source allocation group(s) for each destination row. Suggestions are not assignments.</p>
+            </div>
+          </div>
+          <div *ngFor="let destination of review.destinations" style="border-top: 1px solid var(--border); padding: 12px 0;">
+            <strong>{{ destination.sheet }} — row {{ destination.row }}</strong>
+            <span> Style {{ destination.style }} · Item {{ destination.item }} · X-fty {{ destination.xfty }} · Qty {{ destination.qty }}</span>
+            <div *ngFor="let allocation of unit23SummaryCandidates(destination)" style="margin-left: 12px;">
+              <label>
+                <input
+                  type="checkbox"
+                  [checked]="unit23SummarySelections[destination.sheet + ':' + destination.row]?.includes(allocation.id)"
+                  (change)="toggleUnit23SummaryAllocation(destination, allocation.id)"
+                />
+                PO {{ allocation.po }} · {{ allocation.deliveryDate }} ·
+                <span *ngIf="allocation.country">Country {{ allocation.country }} · </span>
+                <span *ngIf="allocation.colour">Colour {{ allocation.colour }} · </span>
+                Order Qty {{ allocation.orderQty ?? 'N/A' }} · {{ allocation.id }}
+              </label>
+            </div>
+          </div>
+          <p class="error-msg" *ngIf="review.unresolvedMappings?.length">
+            {{ review.unresolvedMappings.length }} destination row(s) unresolved or require selection.
+          </p>
+          <button class="btn btn-primary" (click)="confirmUnit23SummaryMapping()">Confirm Mapping and Apply Daily Actuals</button>
+          <p class="error-msg" *ngIf="unit23DirectActualsError">{{ unit23DirectActualsError }}</p>
+        </div>
+
+        <ng-container *ngIf="unit23DirectActualsState === 'idle' && !unit23SummaryReview">
           <button
             class="btn btn-primary"
             [disabled]="!unit23DirectWorkbookFile"
@@ -579,9 +610,11 @@
         <div class="success-badge" role="status" *ngIf="unit23DirectActualsSummary.cellsFilled > 0">&check; Unit 23 Daily Actuals Updated</div>
         <div class="success-badge" role="status" *ngIf="unit23DirectActualsSummary.cellsFilled === 0 && !unit23DirectActualsSummary.summaryReportProcessed">&#9888; No matching Washing or Packing cells were updated</div>
         <div class="compact-stats">
+          <div class="c-stat ok"><span class="c-val">{{ unit23DirectActualsSummary.sewingFilesProcessed ?? 0 }}</span> <span class="c-lbl">Sewing Files</span></div>
+          <div class="c-stat ok"><span class="c-val">{{ unit23DirectActualsSummary.sewingCellsWritten ?? 0 }}</span> <span class="c-lbl">Sewing Cells</span></div>
           <div class="c-stat ok"><span class="c-val">{{ unit23DirectActualsSummary.washingFilesProcessed ?? 0 }}</span> <span class="c-lbl">Washing Files</span></div>
-          <div class="c-stat ok"><span class="c-val">{{ unit23DirectActualsSummary.packingFilesProcessed ?? 0 }}</span> <span class="c-lbl">Packing Files</span></div>
           <div class="c-stat ok"><span class="c-val">{{ unit23DirectActualsSummary.washingCellsWritten ?? 0 }}</span> <span class="c-lbl">Washing Cells</span></div>
+          <div class="c-stat ok"><span class="c-val">{{ unit23DirectActualsSummary.packingFilesProcessed ?? 0 }}</span> <span class="c-lbl">Packing Files</span></div>
           <div class="c-stat ok"><span class="c-val">{{ unit23DirectActualsSummary.packingCellsWritten ?? 0 }}</span> <span class="c-lbl">Packing Cells</span></div>
           <div class="c-stat"><span class="c-val">{{ unit23DirectActualsSummary.styleSheetsUpdated ?? 0 }}</span> <span class="c-lbl">Style Sheets</span></div>
           <div class="c-stat" *ngIf="unit23DirectActualsSummary.summaryReportProcessed">
@@ -593,6 +626,9 @@
         </div>
         <p class="info-note" *ngIf="unit23DirectActualsSummary.unmatchedItems?.length">
           {{ unit23DirectActualsSummary.unmatchedItems.length }} unmatched Item record(s) skipped.
+        </p>
+        <p class="info-note" *ngIf="unit23DirectActualsSummary.unmatchedStyles?.length">
+          Sewing styles unmatched: {{ unit23DirectActualsSummary.unmatchedStyles.join(', ') }}
         </p>
         <p class="info-note" *ngFor="let warning of unit23DirectActualsSummary.unmatchedItems?.slice(0, 5)">
           Unmatched Item {{ warning.item }} (qty {{ warning.quantity }}) in {{ warning.file }} — {{ warning.process }} — {{ warning.date }}<span *ngIf="warning.buyer"> — Buyer {{ warning.buyer }}</span>.

@@ -22,6 +22,8 @@ export interface ProcessResponse {
 export interface FillActualsSummary {
   sheetsUpdated?: number;
   cellsFilled?: number;
+  sewingFilesProcessed?: number;
+  sewingCellsWritten?: number;
   washingFilesProcessed?: number;
   packingFilesProcessed?: number;
   washingCellsWritten?: number;
@@ -33,6 +35,9 @@ export interface FillActualsSummary {
   summaryStyleSheetsUpdated?: string[];
   summaryUnmatchedGroups?: any[];
   summaryAmbiguousGroups?: any[];
+  summaryUnresolvedMappings?: any[];
+  summaryQuantityConflicts?: any[];
+  summaryAmbiguousAllocations?: any[];
   unmatchedItems?: any[];
   ambiguousItems?: any[];
   missingDestinationDates?: any[];
@@ -44,6 +49,14 @@ export interface FillActualsResponse {
   success: boolean;
   downloadUrl: string;
   summary: FillActualsSummary;
+  requiresSummaryMapping?: boolean;
+  reviewToken?: string;
+  review?: {
+    destinations: any[];
+    candidateAllocations: any[];
+    ambiguousAllocations: any[];
+    unresolvedMappings: any[];
+  };
 }
 
 export interface DprReportUpload {
@@ -163,7 +176,9 @@ export class LinePlanService {
     sewingReport?: File | null,
     washingReports: DprReportUpload[] = [],
     packingReports: DprReportUpload[] = [],
-    summaryReport?: File | null
+    summaryReport?: File | null,
+    summaryMapping?: any | null,
+    summaryReviewToken?: string
   ): Observable<FillActualsResponse> {
     const formData = new FormData();
     formData.append('workbook', workbook);
@@ -172,6 +187,12 @@ export class LinePlanService {
     }
     if (summaryReport) {
       formData.append('summaryReport', summaryReport);
+    }
+    if (summaryMapping) {
+      formData.append('summaryMapping', JSON.stringify(summaryMapping));
+    }
+    if (summaryReviewToken) {
+      formData.append('summaryReviewToken', summaryReviewToken);
     }
     [...washingReports, ...packingReports].forEach((report, index) => {
       formData.append(`report_${index}`, report.file);

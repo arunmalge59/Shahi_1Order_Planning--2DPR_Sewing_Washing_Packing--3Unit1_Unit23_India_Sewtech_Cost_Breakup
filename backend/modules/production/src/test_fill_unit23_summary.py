@@ -17,6 +17,7 @@ def header(ws, row, finishing_col=26):
     headers = {
         "A": "STYLE NO",
         "B": "ITEM NO",
+        "E": "COLOUR",
         "F": "PO",
         "G": "PO QTY",
         "H": "COUNTRY",
@@ -30,15 +31,16 @@ def header(ws, row, finishing_col=26):
         ws["{}{}".format(col, parent_row)] = value
     ws["{}{}".format(get_column_letter(finishing_col), parent_row)] = "FINISHING OUT"
     for col, value in headers.items():
-        ws["{}{}".format(col, row)] = value if col in ("A", "B", "F", "G", "H", "I", "J") else "TILL DATE"
+        ws["{}{}".format(col, row)] = value if col in ("A", "B", "E", "F", "G", "H", "I", "J") else "TILL DATE"
     ws["{}{}".format(get_column_letter(finishing_col), row)] = "TILL DATE"
 
 
-def detail(ws, row, style="", item="", po="", delivery="", sewing="", washing="", finishing="", finishing_col=26):
+def detail(ws, row, style="", item="", po="", delivery="", sewing="", washing="", finishing="", finishing_col=26, colour=""):
     values = {
         "A": style,
         "B": item,
         "F": po,
+        "E": colour,
         "I": delivery,
         "R": sewing,
         "V": washing,
@@ -108,6 +110,26 @@ class Unit23SummaryParserTests(unittest.TestCase):
         # Fix the mutation to use the shifted finishing column in section two.
         with self.assertRaises(ValueError):
             SUMMARY.parse_source(path)
+
+    def test_colour_allocations_and_continuation_lines_are_grouped(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        path = os.path.join(temporary.name, "source.xlsx")
+        workbook = openpyxl.Workbook()
+        ws = workbook.active
+        ws["A1"] = "BS40 - STYLE40 (ADIDAS)"
+        header(ws, 3, 26)
+        detail(ws, 4, "STYLE40", "BS40", "000123", "2026-06-01", 3, 4, 5, 26, "RED")
+        detail(ws, 5, "", "", "", "", 7, 8, 9, 26, "")
+        detail(ws, 6, "STYLE40", "BS40", "000123", "2026-06-02", 11, 12, 13, 26, "BLUE")
+        workbook.save(path)
+
+        allocations, ambiguous, _aggregate = SUMMARY.parse_source_allocations(path)
+        self.assertEqual(len(allocations), 2)
+        self.assertEqual(allocations[0]["colour"], "RED")
+        self.assertEqual(allocations[0]["totals"], [10.0, 12.0, 14.0])
+        self.assertEqual(allocations[0]["po"], "000123")
+        self.assertEqual(ambiguous, [])
 
 
 if __name__ == "__main__":
